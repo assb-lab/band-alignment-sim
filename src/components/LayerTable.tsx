@@ -271,6 +271,7 @@ export function LayerTable({
   temperatureK = 300,
 }: LayerTableProps) {
   const [draggedRowId, setDraggedRowId] = useState<string | null>(null);
+  const enabledRowCount = rows.filter((row) => row.enabled !== false).length;
   const removeRow = (id: string) => {
     if (rows.length <= 1) return;
     onChange(rows.filter((r) => r.id !== id));
@@ -282,6 +283,7 @@ export function LayerTable({
         <thead className="bg-slate-100 text-slate-700">
           <tr>
             <th className="px-2 py-2 font-medium whitespace-nowrap">Order</th>
+            <th className="px-2 py-2 font-medium whitespace-nowrap">On</th>
             <th className="px-2 py-2 font-medium whitespace-nowrap">Type</th>
             <th className="w-24 px-2 py-2 font-medium whitespace-nowrap">Template</th>
             {COMMON_FIELDS.map((f) => (
@@ -300,13 +302,14 @@ export function LayerTable({
         <tbody>
           {rows.map((row) => {
             const isMetal = row.kind === "metal";
+            const isEnabled = row.enabled !== false;
 
             return (
               <tr
                 key={row.id}
                 className={`border-t border-slate-200 hover:bg-slate-50 ${
                   draggedRowId === row.id ? "opacity-50" : ""
-                }`}
+                } ${isEnabled ? "" : "bg-slate-50 text-slate-400"}`}
                 onDragOver={(event) => {
                   if (!draggedRowId || draggedRowId === row.id) return;
                   event.preventDefault();
@@ -335,6 +338,24 @@ export function LayerTable({
                   >
                     ⋮⋮
                   </span>
+                </td>
+                <td className="px-2 py-1 align-top">
+                  <label className="inline-flex h-7 items-center justify-center">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300"
+                      checked={isEnabled}
+                      disabled={isEnabled && enabledRowCount <= 1}
+                      aria-label={`${isEnabled ? "Disable" : "Enable"} ${row.label}`}
+                      onChange={(event) =>
+                        onChange(
+                          updateRow(rows, row.id, {
+                            enabled: event.target.checked,
+                          }),
+                        )
+                      }
+                    />
+                  </label>
                 </td>
                 <td className="px-1 py-1">
                   <select

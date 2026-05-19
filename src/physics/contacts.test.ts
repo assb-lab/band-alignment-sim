@@ -116,6 +116,61 @@ describe("contacts", () => {
     expect(pair.left.barriers?.phiBnEv).toBeCloseTo(0.75, 3);
   });
 
+  it("uses a common equilibrium Fermi level for two Schottky metals", () => {
+    const pair = resolveContacts(
+      nSi,
+      nSi,
+      -4.05,
+      -5.17,
+      -4.05,
+      -5.17,
+      300,
+      { kind: "schottky", workFunctionEv: 5.0 },
+      { kind: "schottky", workFunctionEv: 2.5 },
+      0,
+    );
+    expect(pair.left.kind).toBe("schottky");
+    expect(pair.right.kind).toBe("schottky");
+    expect(pair.left.fermiEv).toBeCloseTo(pair.right.fermiEv, 8);
+    expect(pair.right.phiV - pair.left.phiV).toBeCloseTo(2.5, 8);
+  });
+
+  it("keeps independent metal Fermi levels in open-circuit mode", () => {
+    const pair = resolveContacts(
+      nSi,
+      nSi,
+      -4.05,
+      -5.17,
+      -4.05,
+      -5.17,
+      300,
+      { kind: "schottky", workFunctionEv: 5.0 },
+      { kind: "schottky", workFunctionEv: 2.5 },
+      0,
+      "open",
+    );
+    expect(pair.left.fermiEv).toBeCloseTo(-5.0, 8);
+    expect(pair.right.fermiEv).toBeCloseTo(-2.5, 8);
+  });
+
+  it("sets right metal Fermi from Vapp in applied-bias mode", () => {
+    const pair = resolveContacts(
+      nSi,
+      nSi,
+      -4.05,
+      -5.17,
+      -4.05,
+      -5.17,
+      300,
+      { kind: "schottky", workFunctionEv: 5.0 },
+      { kind: "schottky", workFunctionEv: 2.5 },
+      0.4,
+      "bias",
+    );
+    expect(pair.left.fermiEv).toBeCloseTo(-5.0, 8);
+    expect(pair.right.fermiEv).toBeCloseTo(-4.6, 8);
+  });
+
   it("simulates n-Si Schottky diode with barrier at surface", () => {
     const stack = siSchottkyNStack();
     const result = solveStack(stack, {

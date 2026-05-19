@@ -20,6 +20,7 @@ import {
   type InterfaceTemplate,
 } from "./lib/interfaceTemplates.ts";
 import {
+  isLayerRowEnabled,
   layerToRow,
   rowToLayer,
   withDopingFromFermi,
@@ -75,7 +76,7 @@ function App() {
   const [materialLibraryOpen, setMaterialLibraryOpen] = useState(false);
   const [interfaceLibraryOpen, setInterfaceLibraryOpen] = useState(false);
   const [userInterfaceTemplates, setUserInterfaceTemplates] = useState<InterfaceTemplate[]>([]);
-  const [liveCalc, setLiveCalc] = useState(false);
+  const [liveCalc, setLiveCalc] = useState(true);
   const runAfterPresetRef = useRef(false);
   const { rows, run, setRows, temperatureK } = sim;
   const materialTemplates = useMemo(
@@ -99,8 +100,9 @@ function App() {
   );
   const saveTemplateRow = rows.find((item) => item.id === saveTemplateRowId);
   const preContactPreview = useMemo(() => {
+    const activeRows = rows.filter(isLayerRowEnabled);
     const stack = {
-      layers: rows.map((row) => rowToLayer(row, temperatureK)),
+      layers: activeRows.map((row) => rowToLayer(row, temperatureK)),
       temperatureK,
     };
     return {
@@ -142,16 +144,35 @@ function App() {
   );
 
   const createInterfaceTemplate = useCallback(
-    (nameRaw: string): Promise<string | null> => {
+    (nameRaw: string, overwriteId?: string): Promise<string | null> => {
       const name = nameRaw.trim();
       if (!name) return Promise.resolve("Interface name is required.");
-      const duplicate = [...builtInInterfaceTemplates, ...userInterfaceTemplates].find(
+      const builtInDuplicate = builtInInterfaceTemplates.find(
         (item) => item.name.toLowerCase() === name.toLowerCase(),
       );
-      if (duplicate) return Promise.resolve(`Interface already exists: ${duplicate.name}`);
-      const template = createUserInterfaceTemplate(rows, name);
+      if (builtInDuplicate) {
+        return Promise.resolve(`Built-in interface cannot be overwritten: ${builtInDuplicate.name}`);
+      }
+      const userDuplicate = userInterfaceTemplates.find(
+        (item) => item.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (userDuplicate && userDuplicate.id !== overwriteId) {
+        return Promise.resolve(`Interface already exists: ${userDuplicate.name}`);
+      }
+      const template: InterfaceTemplate = overwriteId
+        ? {
+            id: overwriteId,
+            source: "user",
+            name,
+            rows: rows.map((row) => ({ ...row })),
+          }
+        : createUserInterfaceTemplate(rows, name);
       return saveUserInterfaceTemplate(template).then((saved) => {
-        setUserInterfaceTemplates((prev) => [...prev, saved]);
+        setUserInterfaceTemplates((prev) =>
+          prev.some((item) => item.id === saved.id)
+            ? prev.map((item) => (item.id === saved.id ? saved : item))
+            : [...prev, saved],
+        );
         return null;
       });
     },
@@ -297,6 +318,7 @@ function App() {
             maxGummelIter={sim.maxGummelIter}
             maxNewtonIter={sim.maxNewtonIter}
             maxRelativeResidual={sim.maxRelativeResidual}
+            electrodeMode={sim.electrodeMode}
             running={sim.running}
             error={sim.error}
             builtInVoltageV={sim.result?.builtInVoltageV}
@@ -308,6 +330,7 @@ function App() {
             onMaxGummelIterChange={sim.setMaxGummelIter}
             onMaxNewtonIterChange={sim.setMaxNewtonIter}
             onMaxRelativeResidualChange={sim.setMaxRelativeResidual}
+            onElectrodeModeChange={sim.setElectrodeMode}
             onLiveCalcChange={setLiveCalc}
             onRun={sim.run}
           />

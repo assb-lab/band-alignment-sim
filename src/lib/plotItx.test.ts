@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { solveStack } from "../physics/gummel.ts";
 import { preContactBands, preContactMaterialRegions } from "../physics/preContact.ts";
 import { siPnStack, siSchottkyNStack } from "../presets/materials.ts";
-import { postContactItx, preContactItx, secondaryPlotItx } from "./plotItx.ts";
+import {
+  postContactItx,
+  preContactItx,
+  secondaryPlotDisplayData,
+  secondaryPlotItx,
+} from "./plotItx.ts";
 
 describe("plotItx", () => {
   const result = solveStack(siPnStack(), {
@@ -46,4 +51,21 @@ describe("plotItx", () => {
       expect(itx).toContain('X Label bottom "Position [nm]"');
     },
   );
+
+  it("uses display coordinates with metal contact width for secondary plots", () => {
+    const schottky = solveStack(siSchottkyNStack(), {
+      nodesPerNm: 1,
+      minNodesPerLayer: 15,
+      tol: 1e-4,
+      maxGummelIter: 1,
+      maxNewtonIter: 400,
+      Vapp: 0,
+    });
+    const phi = secondaryPlotDisplayData(schottky, "phi");
+    const field = secondaryPlotDisplayData(schottky, "field");
+    expect(phi.xNm[0]).toBe(0);
+    expect(phi.xNm.at(-1)).toBeGreaterThan(schottky.mesh.nodes.at(-1)!.xM * 1e9);
+    expect(phi.values[0]).toBeCloseTo(schottky.phiV[0]!, 8);
+    expect(field.values[0]).toBeNaN();
+  });
 });

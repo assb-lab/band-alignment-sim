@@ -1,4 +1,5 @@
 import { numericInputAttrs } from "./numericInputAttrs.ts";
+import type { ElectrodeMode } from "../physics/types.ts";
 
 interface GlobalControlsProps {
   temperatureK: number;
@@ -8,6 +9,7 @@ interface GlobalControlsProps {
   maxGummelIter: number;
   maxNewtonIter: number;
   maxRelativeResidual: number;
+  electrodeMode: ElectrodeMode;
   running: boolean;
   error: string | null;
   builtInVoltageV?: number;
@@ -19,6 +21,7 @@ interface GlobalControlsProps {
   onMaxGummelIterChange: (n: number) => void;
   onMaxNewtonIterChange: (n: number) => void;
   onMaxRelativeResidualChange: (n: number) => void;
+  onElectrodeModeChange: (mode: ElectrodeMode) => void;
   onLiveCalcChange?: (enabled: boolean) => void;
   onRun: () => void;
 }
@@ -31,6 +34,7 @@ export function GlobalControls({
   maxGummelIter,
   maxNewtonIter,
   maxRelativeResidual,
+  electrodeMode,
   running,
   error,
   builtInVoltageV,
@@ -42,6 +46,7 @@ export function GlobalControls({
   onMaxGummelIterChange,
   onMaxNewtonIterChange,
   onMaxRelativeResidualChange,
+  onElectrodeModeChange,
   onLiveCalcChange,
   onRun,
 }: GlobalControlsProps) {
@@ -105,6 +110,18 @@ export function GlobalControls({
         />
       </label>
       <label className="flex flex-col gap-1 text-sm text-slate-700">
+        Mode
+        <select
+          className="w-40 rounded border border-slate-300 bg-white px-2 py-1 text-slate-950"
+          value={electrodeMode}
+          onChange={(e) => onElectrodeModeChange(e.target.value as ElectrodeMode)}
+        >
+          <option value="shorted">Shorted equilibrium</option>
+          <option value="open">Open circuit</option>
+          <option value="bias">Applied bias</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-sm text-slate-700">
         Gummel
         <input
           type="number"
@@ -149,7 +166,7 @@ export function GlobalControls({
           checked={liveCalc}
           onChange={(e) => onLiveCalcChange?.(e.target.checked)}
         />
-        Live calc
+        Live
       </label>
       {builtInVoltageV !== undefined && (
         <p className="text-sm text-slate-700">Vbi = {builtInVoltageV.toFixed(3)} V</p>

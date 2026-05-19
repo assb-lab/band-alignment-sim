@@ -94,11 +94,44 @@ export function secondaryPlotData(
   }
 }
 
-export function secondaryPlotItx(result: SimulationResult, tab: SecondaryPlotTabForItx): string {
+export function secondaryPlotDisplayData(
+  result: SimulationResult,
+  tab: SecondaryPlotTabForItx,
+): { xNm: number[]; values: number[]; yLabel: string; waveName: string; logScale: boolean } {
   const data = secondaryPlotData(result, tab);
+  const xNm = Array.from(result.bands.xM ?? result.mesh.nodes.map((node) => node.xM)).map((xM) =>
+    mToNm(xM),
+  );
+  const values: number[] = [];
+  let semiconductorIndex = 0;
+  for (const kind of result.bands.layerKind ?? []) {
+    if (kind === "metal") {
+      if (tab === "phi") {
+        const boundaryPhi =
+          semiconductorIndex === 0
+            ? result.phiV[0]
+            : result.phiV[result.phiV.length - 1];
+        values.push(boundaryPhi ?? Number.NaN);
+      } else {
+        values.push(Number.NaN);
+      }
+      continue;
+    }
+    values.push(data.values[semiconductorIndex] ?? Number.NaN);
+    semiconductorIndex++;
+  }
+
+  if (values.length === xNm.length) {
+    return { ...data, xNm, values };
+  }
+  return { ...data, xNm: result.mesh.nodes.map((node) => mToNm(node.xM)), values: data.values };
+}
+
+export function secondaryPlotItx(result: SimulationResult, tab: SecondaryPlotTabForItx): string {
+  const data = secondaryPlotDisplayData(result, tab);
   return buildIgorItx({
     waves: [
-      { name: `${tab}_x_nm`, values: result.mesh.nodes.map((n) => mToNm(n.xM)) },
+      { name: `${tab}_x_nm`, values: data.xNm },
       { name: data.waveName, values: data.values },
     ],
     graph: {

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { bulkStateAtFermi, analyticVbi } from "./bulkNeutral.ts";
+import {
+  analyticVbi,
+  bulkStateAtFermi,
+  findFermiForBulkPhi,
+  intrinsicLevelEv,
+} from "./bulkNeutral.ts";
 import { perCm3ToPerM3 } from "./units.ts";
 import { makeLayer, SI_MATERIAL } from "../presets/materials.ts";
 import { layerNi } from "./intrinsic.ts";
@@ -40,5 +45,30 @@ describe("bulkNeutral", () => {
     const vbi = analyticVbi(Nd, Na, ni, 300);
     expect(vbi).toBeGreaterThan(0.6);
     expect(vbi).toBeLessThan(0.9);
+  });
+
+  it("keeps intrinsic wide-gap semiconductor bulk potential continuous", () => {
+    const layer = makeLayer({
+      label: "LiNbO3",
+      thicknessM: 100e-9,
+      relativePermittivity: 30,
+      bandGapEv: 4.58,
+      electronAffinityEv: 1.6,
+      NcM3: perCm3ToPerM3(1e19),
+      NvM3: perCm3ToPerM3(1e19),
+      NdM3: 0,
+      NaM3: 0,
+    });
+    const ecRef = -layer.electronAffinityEv;
+    const evRef = ecRef - layer.bandGapEv;
+    const intrinsic = intrinsicLevelEv(layer, 300, ecRef, evRef);
+    const eFAtZeroPhi = findFermiForBulkPhi(layer, 300, ecRef, evRef, 0);
+    expect(eFAtZeroPhi).toBeCloseTo(intrinsic, 8);
+    expect(bulkStateAtFermi(layer, 300, eFAtZeroPhi, ecRef, evRef).phiV).toBeCloseTo(0, 8);
+
+    const phiAt2p50 = bulkStateAtFermi(layer, 300, -2.5, ecRef, evRef).phiV;
+    const phiAt2p55 = bulkStateAtFermi(layer, 300, -2.55, ecRef, evRef).phiV;
+    expect(Math.abs(phiAt2p55 - phiAt2p50)).toBeCloseTo(0.05, 8);
+    expect(Math.abs(phiAt2p50)).toBeLessThan(1.5);
   });
 });

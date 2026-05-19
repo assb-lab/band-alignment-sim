@@ -16,7 +16,7 @@ import { mToNm } from "../physics/units.ts";
 import {
   postContactItx,
   preContactItx,
-  secondaryPlotData,
+  secondaryPlotDisplayData,
   secondaryPlotItx,
 } from "../lib/plotItx.ts";
 
@@ -501,7 +501,7 @@ export function BandDiagram({ result, width = 920, height = 420 }: BandDiagramPr
       return;
     }
 
-    const margin = { top: 28, right: 20, bottom: 40, left: 50 };
+    const margin = { top: 28, right: 20, bottom: 50, left: 60 };
     const innerW = drawWidth - margin.left - margin.right;
     const innerH = height - margin.top - margin.bottom;
 
@@ -596,26 +596,26 @@ export function BandDiagram({ result, width = 920, height = 420 }: BandDiagramPr
 
     g.append("g")
       .attr("transform", `translate(0,${innerH})`)
-      .call(d3.axisBottom(x).ticks(8))
+      .call(d3.axisBottom(x).ticks(8).tickSizeInner(-6).tickSizeOuter(0))
       .call((sel) => sel.selectAll("text").attr("fill", "#334155"))
       .call((sel) => sel.selectAll("line,path").attr("stroke", "#64748b"));
 
     g.append("text")
       .attr("x", innerW / 2)
-      .attr("y", innerH + 32)
+      .attr("y", innerH + 40)
       .attr("text-anchor", "middle")
       .attr("fill", "#334155")
       .text("Position [nm]");
 
     g.append("g")
-      .call(d3.axisLeft(y).ticks(8))
+      .call(d3.axisLeft(y).ticks(8).tickSizeInner(-6).tickSizeOuter(0))
       .call((sel) => sel.selectAll("text").attr("fill", "#334155"))
       .call((sel) => sel.selectAll("line,path").attr("stroke", "#64748b"));
 
     g.append("text")
       .attr("transform", "rotate(-90)")
       .attr("x", -innerH / 2)
-      .attr("y", -38)
+      .attr("y", -48)
       .attr("text-anchor", "middle")
       .attr("fill", "#334155")
       .text("Energy [eV]");
@@ -1050,7 +1050,7 @@ export function SecondaryPlots({
     svg.selectAll("*").remove();
     if (!result) return;
 
-    const margin = { top: 16, right: 16, bottom: 36, left: 56 };
+    const margin = { top: 16, right: 16, bottom: 50, left: 64 };
     const innerW = drawWidth - margin.left - margin.right;
     const innerH = height - margin.top - margin.bottom;
     const g = svg
@@ -1059,7 +1059,7 @@ export function SecondaryPlots({
     const plotClipUrl = addPlotClip(svg, innerW, innerH);
     const plotG = g.append("g").attr("clip-path", plotClipUrl);
 
-    const xData = result.mesh.nodes.map((n) => mToNm(n.xM));
+    const { xNm: xData, values: yData, yLabel, logScale } = secondaryPlotDisplayData(result, tab);
     const baseXDomain: Domain = [0, d3.max(xData) ?? 1];
     const activeXDomain =
       xZoom?.key === result && xZoom.tab === tab ? xZoom.domain : null;
@@ -1067,11 +1067,11 @@ export function SecondaryPlots({
       yZoom?.key === result && yZoom.tab === tab ? yZoom.domain : null;
     const x = d3.scaleLinear().domain(activeXDomain ?? baseXDomain).range([0, innerW]);
 
-    const { values: yData, yLabel, logScale } = secondaryPlotData(result, tab);
-
+    const finiteYData = yData.filter((v) => Number.isFinite(v));
+    const positiveYData = finiteYData.filter((v) => v > 0);
     const baseYDomain: Domain = logScale
-      ? [d3.min(yData.filter((v) => v > 0)) ?? 1, d3.max(yData)!]
-      : [d3.min(yData)!, d3.max(yData)!];
+      ? [d3.min(positiveYData) ?? 1, d3.max(positiveYData) ?? 1]
+      : [d3.min(finiteYData) ?? 0, d3.max(finiteYData) ?? 1];
     const effectiveYDomain: Domain = logScale
       ? [
           Math.max(activeYDomain?.[0] ?? baseYDomain[0], 1e-30),
@@ -1084,19 +1084,32 @@ export function SecondaryPlots({
 
     g.append("g")
       .attr("transform", `translate(0,${innerH})`)
-      .call(d3.axisBottom(x).ticks(6))
+      .call(d3.axisBottom(x).ticks(6).tickSizeInner(-6).tickSizeOuter(0))
       .call((sel) => sel.selectAll("text").attr("fill", "#334155"))
       .call((sel) => sel.selectAll("line,path").attr("stroke", "#64748b"));
 
+    g.append("text")
+      .attr("x", innerW / 2)
+      .attr("y", innerH + 40)
+      .attr("text-anchor", "middle")
+      .attr("fill", "#334155")
+      .text("Position [nm]");
+
+    const yAxis = d3
+      .axisLeft(y)
+      .ticks(6, logScale ? "~s" : tab === "phi" ? ".1e" : undefined)
+      .tickSizeInner(-6)
+      .tickSizeOuter(0);
+
     g.append("g")
-      .call(d3.axisLeft(y).ticks(6, logScale ? "~s" : undefined))
+      .call(yAxis)
       .call((sel) => sel.selectAll("text").attr("fill", "#334155"))
       .call((sel) => sel.selectAll("line,path").attr("stroke", "#64748b"));
 
     g.append("text")
       .attr("transform", "rotate(-90)")
       .attr("x", -innerH / 2)
-      .attr("y", -44)
+      .attr("y", -52)
       .attr("text-anchor", "middle")
       .attr("fill", "#334155")
       .text(yLabel);
@@ -1105,7 +1118,7 @@ export function SecondaryPlots({
       .line<number>()
       .x((_, i) => x(xData[i]!))
       .y((d) => y(Math.max(d, logScale ? 1 : d)))
-      .defined((d) => Number.isFinite(d));
+      .defined((d) => Number.isFinite(d) && (!logScale || d > 0));
 
     plotG
       .append("path")

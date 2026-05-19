@@ -25,6 +25,7 @@ export interface Layer {
 }
 
 export type ContactKind = "ohmic" | "schottky";
+export type ElectrodeMode = "shorted" | "open" | "bias";
 
 /** Boundary at stack end (left = first layer surface, right = last layer surface). */
 export interface ContactBoundary {
@@ -55,6 +56,8 @@ export interface SolverOptions {
   maxRelativeResidual?: number;
   /** Applied bias [V] (positive = forward on p→n direction, left to right) */
   Vapp: number;
+  /** How EF is assigned when both ends are metal Schottky contacts */
+  electrodeMode?: ElectrodeMode;
   /** Left (first-layer) contact; default ohmic */
   contactLeft?: ContactBoundary;
   /** Right (last-layer) contact; default ohmic */

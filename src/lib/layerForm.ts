@@ -11,6 +11,7 @@ export type DopingInputMode = "fermi" | "direct";
 
 export interface LayerRow {
   id: string;
+  enabled?: boolean;
   kind: LayerKind;
   label: string;
   dopingInputMode: DopingInputMode;
@@ -43,6 +44,7 @@ export function layerToRow(layer: Layer, id: string, temperatureK = 300): LayerR
       : vacuumFermiFromNonCompensatedDoping(baseLayer, temperatureK));
   return {
     id,
+    enabled: true,
     kind,
     label: layer.label,
     dopingInputMode: "fermi",
@@ -130,6 +132,7 @@ export function rowToLayer(
 export function createSemiconductorRow(label = "Layer"): LayerRow {
   const row: LayerRow = {
     id: crypto.randomUUID(),
+    enabled: true,
     kind: "semiconductor",
     label,
     dopingInputMode: "fermi",
@@ -153,6 +156,7 @@ export function createSemiconductorRow(label = "Layer"): LayerRow {
 export function createMetalRow(label = "Metal", workFunctionEv = 4.8): LayerRow {
   return {
     id: crypto.randomUUID(),
+    enabled: true,
     kind: "metal",
     label,
     dopingInputMode: "fermi",
@@ -175,4 +179,8 @@ export function createMetalRow(label = "Metal", workFunctionEv = 4.8): LayerRow 
 /** @deprecated Use createSemiconductorRow */
 export function createEmptyRow(label = "Layer"): LayerRow {
   return createSemiconductorRow(label);
+}
+
+export function isLayerRowEnabled(row: LayerRow): boolean {
+  return row.enabled !== false;
 }

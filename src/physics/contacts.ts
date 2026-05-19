@@ -1,7 +1,7 @@
 import { KB, Q } from "./constants.ts";
 import { bulkStateAtFermi, findBulkFermi, findFermiForBulkPhi } from "./bulkNeutral.ts";
 import { layerDosParams } from "./carriers.ts";
-import type { ContactBoundary, ContactKind, Layer } from "./types.ts";
+import type { ContactBoundary, ContactKind, ElectrodeMode, Layer } from "./types.ts";
 
 /** Schottky–Mott barrier heights [eV], vacuum reference (Ec = -χ at φ = 0). */
 export interface SchottkyBarriers {
@@ -68,6 +68,15 @@ function resolveSchottky(
   biasEv: number,
 ): ResolvedContact {
   const fermiEv = metalFermiEv(workFunctionEv, biasEv);
+  return resolveSchottkyAtFermi(layer, ecRefEv, workFunctionEv, fermiEv);
+}
+
+function resolveSchottkyAtFermi(
+  layer: Layer,
+  ecRefEv: number,
+  workFunctionEv: number,
+  fermiEv: number,
+): ResolvedContact {
   const barriers = schottkyBarrierHeights(layer, workFunctionEv);
   return {
     kind: "schottky",
@@ -136,6 +145,7 @@ export function resolveContacts(
   leftContact: ContactBoundary,
   rightContact: ContactBoundary,
   Vapp: number,
+  electrodeMode: ElectrodeMode = "shorted",
 ): ContactPair {
   const leftPhiM = contactWorkFunction(leftContact, leftLayer);
   const rightPhiM = contactWorkFunction(rightContact, rightLayer);
@@ -158,9 +168,14 @@ export function resolveContacts(
   }
 
   if (leftIsSchottky && rightIsSchottky) {
+    const leftFermiEv = metalFermiEv(leftPhiM, 0);
+    const rightFermiEv =
+      electrodeMode === "open"
+        ? metalFermiEv(rightPhiM, 0)
+        : leftFermiEv + (electrodeMode === "bias" ? Vapp : 0);
     return {
-      left: resolveSchottky(leftLayer, leftEcRef, leftPhiM, 0),
-      right: resolveSchottky(rightLayer, rightEcRef, rightPhiM, Vapp),
+      left: resolveSchottkyAtFermi(leftLayer, leftEcRef, leftPhiM, leftFermiEv),
+      right: resolveSchottkyAtFermi(rightLayer, rightEcRef, rightPhiM, rightFermiEv),
     };
   }
 

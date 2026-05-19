@@ -6,7 +6,7 @@ interface InterfaceLibraryModalProps {
   userTemplates: InterfaceTemplate[];
   defaultName: string;
   onClose: () => void;
-  onCreate: (name: string) => Promise<string | null>;
+  onCreate: (name: string, overwriteId?: string) => Promise<string | null>;
   onRename: (id: string, name: string) => Promise<string | null>;
   onDelete: (id: string) => Promise<void>;
   onLoad: (template: InterfaceTemplate) => void;
@@ -99,15 +99,45 @@ export function InterfaceLibraryModal({
   const [newName, setNewName] = useState(defaultName);
   const [draftNames, setDraftNames] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [pendingOverwrite, setPendingOverwrite] = useState<InterfaceTemplate | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<InterfaceTemplate | null>(null);
 
   const create = () => {
     setError(null);
+    const name = newName.trim();
+    const builtInDuplicate = builtInTemplates.find(
+      (template) => template.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (builtInDuplicate) {
+      setError(`Built-in interface cannot be overwritten: ${builtInDuplicate.name}`);
+      return;
+    }
+    const userDuplicate = userTemplates.find(
+      (template) => template.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (userDuplicate) {
+      setPendingOverwrite(userDuplicate);
+      return;
+    }
     onCreate(newName).then((message) => {
       if (message) {
         setError(message);
         return;
       }
       setNewName(defaultName);
+    });
+  };
+
+  const confirmOverwrite = () => {
+    if (!pendingOverwrite) return;
+    setError(null);
+    onCreate(pendingOverwrite.name, pendingOverwrite.id).then((message) => {
+      if (message) {
+        setError(message);
+        return;
+      }
+      setNewName(defaultName);
+      setPendingOverwrite(null);
     });
   };
 
@@ -128,7 +158,12 @@ export function InterfaceLibraryModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 px-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 px-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <section
         role="dialog"
         aria-modal="true"
@@ -199,7 +234,7 @@ export function InterfaceLibraryModal({
                   onRename={() => rename(template)}
                   onDelete={() => {
                     setError(null);
-                    onDelete(template.id);
+                    setPendingDelete(template);
                   }}
                 />
               ))}
@@ -214,6 +249,78 @@ export function InterfaceLibraryModal({
             </tbody>
           </table>
         </div>
+        {pendingOverwrite && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 px-4">
+            <section
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="overwrite-interface-title"
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
+            >
+              <h3 id="overwrite-interface-title" className="text-base font-semibold text-slate-950">
+                Overwrite interface?
+              </h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Replace "{pendingOverwrite.name}" with the current stack. This keeps the same saved
+                interface name and updates its layers.
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => setPendingOverwrite(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+                  onClick={confirmOverwrite}
+                >
+                  Overwrite
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+        {pendingDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 px-4">
+            <section
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="delete-interface-title"
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
+            >
+              <h3 id="delete-interface-title" className="text-base font-semibold text-slate-950">
+                Delete interface?
+              </h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Delete "{pendingDelete.name}". This saved interface cannot be restored from this
+                dialog.
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => setPendingDelete(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                  onClick={() => {
+                    const target = pendingDelete;
+                    setPendingDelete(null);
+                    onDelete(target.id);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </section>
     </div>
   );

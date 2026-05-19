@@ -4,6 +4,7 @@ import { BandDiagram, PreContactBandDiagram, SecondaryPlots } from "../component
 import { LayerTable } from "../components/LayerTable.tsx";
 import { GlobalControls } from "../components/GlobalControls.tsx";
 import { solveStack } from "../physics/gummel.ts";
+import type { ElectrodeMode } from "../physics/types.ts";
 import { preContactBands, preContactMaterialRegions } from "../physics/preContact.ts";
 import { siPnStack, siSchottkyNStack } from "../presets/materials.ts";
 import { createMetalRow, layerToRow } from "../lib/layerForm.ts";
@@ -290,6 +291,33 @@ describe("components", () => {
     expect(rows.map((row) => row.label)).toEqual(["n-Si", "p-Si"]);
   });
 
+  it("toggles layer rows on and off without removing them", () => {
+    let rows = siPnStack().layers.map((layer, index) => layerToRow(layer, `row-${index}`));
+    const { rerender } = render(
+      <LayerTable
+        rows={rows}
+        onChange={(next) => {
+          rows = next;
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Disable p-Si"));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.enabled).toBe(false);
+
+    rerender(
+      <LayerTable
+        rows={rows}
+        onChange={(next) => {
+          rows = next;
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Enable p-Si"));
+    expect(rows[0]!.enabled).toBe(true);
+  });
+
   it("applies and saves material templates from layer table", () => {
     const rows = [layerToRow(siPnStack().layers[0]!, "a")];
     const applied: string[] = [];
@@ -372,6 +400,7 @@ describe("components", () => {
         maxGummelIter={80}
         maxNewtonIter={800}
         maxRelativeResidual={2}
+        electrodeMode="shorted"
         running={true}
         error="Solver failed"
         onTemperatureChange={() => {}}
@@ -381,6 +410,7 @@ describe("components", () => {
         onMaxGummelIterChange={() => {}}
         onMaxNewtonIterChange={() => {}}
         onMaxRelativeResidualChange={() => {}}
+        onElectrodeModeChange={() => {}}
         onRun={() => {}}
       />,
     );
@@ -396,6 +426,7 @@ describe("components", () => {
     let rel = 2;
     let gummel = 80;
     let newton = 800;
+    let mode: ElectrodeMode = "shorted";
     let ran = false;
     let live = false;
     render(
@@ -407,6 +438,7 @@ describe("components", () => {
         maxGummelIter={gummel}
         maxNewtonIter={newton}
         maxRelativeResidual={rel}
+        electrodeMode={mode}
         running={false}
         error={null}
         builtInVoltageV={0.7}
@@ -432,6 +464,9 @@ describe("components", () => {
         onMaxRelativeResidualChange={(next) => {
           rel = next;
         }}
+        onElectrodeModeChange={(next) => {
+          mode = next;
+        }}
         onLiveCalcChange={(next) => {
           live = next;
         }}
@@ -441,13 +476,14 @@ describe("components", () => {
       />,
     );
     expect(screen.getByText(/Vbi =/)).toBeTruthy();
-    fireEvent.click(screen.getByLabelText(/Live calc/i));
+    fireEvent.click(screen.getByLabelText(/^Live$/i));
     expect(live).toBe(true);
     fireEvent.change(screen.getByLabelText(/T \[K\]/), { target: { value: "350" } });
     fireEvent.change(screen.getByLabelText(/Vapp \[V\]/), { target: { value: "0.3" } });
     fireEvent.change(screen.getByLabelText(/nodes\/nm/), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText(/^tol$/), { target: { value: "0.0001" } });
     fireEvent.change(screen.getByLabelText(/rel limit/), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText(/^Mode$/), { target: { value: "open" } });
     fireEvent.change(screen.getByLabelText(/Gummel/), { target: { value: "120" } });
     fireEvent.change(screen.getByLabelText(/Newton/), { target: { value: "900" } });
     fireEvent.click(screen.getByRole("button", { name: /Run simulation/i }));
@@ -456,6 +492,7 @@ describe("components", () => {
     expect(n).toBe(3);
     expect(tol).toBe(0.0001);
     expect(rel).toBe(3);
+    expect(mode).toBe("open");
     expect(gummel).toBe(120);
     expect(newton).toBe(900);
     expect(ran).toBe(true);

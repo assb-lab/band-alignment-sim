@@ -405,9 +405,15 @@ export function MaterialLibraryModal({
   const [newDraft, setNewDraft] = useState<MaterialTemplate>(() => newTemplate());
   const [drafts, setDrafts] = useState<Record<string, MaterialTemplate>>({});
   const [error, setError] = useState<string | null>(null);
+  const [pendingOverwrite, setPendingOverwrite] = useState<{
+    template: MaterialTemplate;
+    resetNew: boolean;
+    existing: MaterialTemplate;
+  } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<MaterialTemplate | null>(null);
   const userDraft = (template: MaterialTemplate) => drafts[template.id] ?? template;
 
-  const save = (template: MaterialTemplate, resetNew = false) => {
+  const commitSave = (template: MaterialTemplate, resetNew = false) => {
     setError(null);
     onSave(normalizeSemiconductorDoping(template)).then((message) => {
       if (message) {
@@ -423,13 +429,48 @@ export function MaterialLibraryModal({
     });
   };
 
+  const save = (template: MaterialTemplate, resetNew = false) => {
+    setError(null);
+    const normalized = normalizeSemiconductorDoping({ ...template, name: template.name.trim() });
+    if (!normalized.name) {
+      setError("Material name is required.");
+      return;
+    }
+    const builtInDuplicate = builtInTemplates.find(
+      (item) =>
+        item.id !== normalized.id && item.name.toLowerCase() === normalized.name.toLowerCase(),
+    );
+    if (builtInDuplicate) {
+      setError(`Built-in material cannot be overwritten: ${builtInDuplicate.name}`);
+      return;
+    }
+    const userDuplicate = userTemplates.find(
+      (item) =>
+        item.id !== normalized.id && item.name.toLowerCase() === normalized.name.toLowerCase(),
+    );
+    if (userDuplicate) {
+      setPendingOverwrite({
+        template: { ...normalized, id: userDuplicate.id, source: "user" },
+        resetNew,
+        existing: userDuplicate,
+      });
+      return;
+    }
+    commitSave(normalized, resetNew);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 px-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/30 px-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="material-library-title"
-        className="flex max-h-[86vh] w-full max-w-6xl flex-col rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
+        className="flex max-h-[86vh] w-full max-w-[96rem] flex-col rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
       >
         <div className="flex items-center justify-between gap-4">
           <h2 id="material-library-title" className="text-base font-semibold text-slate-950">
@@ -483,7 +524,7 @@ export function MaterialLibraryModal({
                   onSave={() => save(userDraft(template))}
                   onDelete={() => {
                     setError(null);
-                    onDelete(template.id);
+                    setPendingDelete(template);
                   }}
                   saveLabel="Save"
                 />
@@ -494,6 +535,82 @@ export function MaterialLibraryModal({
             </tbody>
           </table>
         </div>
+        {pendingOverwrite && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 px-4">
+            <section
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="overwrite-material-title"
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
+            >
+              <h3 id="overwrite-material-title" className="text-base font-semibold text-slate-950">
+                Overwrite material?
+              </h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Replace "{pendingOverwrite.existing.name}" with the current material values. This
+                keeps the same saved material entry.
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => setPendingOverwrite(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+                  onClick={() => {
+                    const pending = pendingOverwrite;
+                    setPendingOverwrite(null);
+                    commitSave(pending.template, pending.resetNew);
+                  }}
+                >
+                  Overwrite
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+        {pendingDelete && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/30 px-4">
+            <section
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="delete-material-title"
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl"
+            >
+              <h3 id="delete-material-title" className="text-base font-semibold text-slate-950">
+                Delete material?
+              </h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Delete "{pendingDelete.name}". This saved material cannot be restored from this
+                dialog.
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  onClick={() => setPendingDelete(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                  onClick={() => {
+                    const target = pendingDelete;
+                    setPendingDelete(null);
+                    onDelete(target.id);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
       </section>
     </div>
   );

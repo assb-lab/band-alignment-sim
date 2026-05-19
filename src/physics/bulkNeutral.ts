@@ -1,7 +1,6 @@
 import { KB, Q } from "./constants.ts";
 import type { Layer } from "./types.ts";
 import { layerDosParams } from "./carriers.ts";
-import { boltzmannElectronDensity, boltzmannHoleDensity } from "./statistics.ts";
 
 export interface BulkState {
   phiV: number;
@@ -9,6 +8,36 @@ export interface BulkState {
   pM3: number;
   ecEv: number;
   evEv: number;
+}
+
+export function intrinsicLevelEv(
+  layer: Layer,
+  temperatureK: number,
+  ecRefEv: number,
+  evRefEv: number,
+): number {
+  const dos = layerDosParams(layer, temperatureK);
+  const kT = (KB * temperatureK) / Q;
+  return 0.5 * (ecRefEv + evRefEv) + 0.5 * kT * Math.log(dos.NvM3 / dos.NcM3);
+}
+
+function fermiOffsetFromNetDopingEv(netDopingM3: number, niM3: number, temperatureK: number): number {
+  if (netDopingM3 === 0) return 0;
+  const kT = (KB * temperatureK) / Q;
+  const safeNi = Math.max(niM3, Number.MIN_VALUE);
+  const ratio = Math.abs(netDopingM3) / (2 * safeNi);
+  const offset = Number.isFinite(ratio)
+    ? Math.asinh(ratio)
+    : Math.log(Math.abs(netDopingM3) / safeNi);
+  return Math.sign(netDopingM3) * kT * offset;
+}
+
+function neutralCarrierDensities(netDopingM3: number, niM3: number): { nM3: number; pM3: number } {
+  const root = Math.hypot(netDopingM3, 2 * niM3);
+  return {
+    nM3: Math.max(0, 0.5 * (netDopingM3 + root)),
+    pM3: Math.max(0, 0.5 * (root - netDopingM3)),
+  };
 }
 
 /**
@@ -23,43 +52,14 @@ export function bulkStateAtFermi(
   evRefEv: number,
 ): BulkState {
   const dos = layerDosParams(layer, temperatureK);
-  const kT = (KB * temperatureK) / Q;
   const netDoping = layer.NdM3 - layer.NaM3;
-
-  const solvePhi = (phi: number): number => {
-    const ec = ecRefEv - phi;
-    const ev = evRefEv - phi;
-    const n = boltzmannElectronDensity(dos.NcM3, ec, fermiEv, kT);
-    const p = boltzmannHoleDensity(dos.NvM3, ev, fermiEv, kT);
-    return n - p - netDoping;
-  };
-
-  let phiLo = -2;
-  let phiHi = 2;
-  let fLo = solvePhi(phiLo);
-  let fHi = solvePhi(phiHi);
-  let expand = 0;
-  while (fLo * fHi > 0 && expand < 20) {
-    phiLo -= 1;
-    phiHi += 1;
-    fLo = solvePhi(phiLo);
-    fHi = solvePhi(phiHi);
-    expand++;
-  }
-
-  let phi = 0;
-  for (let i = 0; i < 80; i++) {
-    phi = 0.5 * (phiLo + phiHi);
-    const f = solvePhi(phi);
-    if (Math.abs(f) < 1e-20 * Math.max(1, Math.abs(netDoping))) break;
-    if (f * fLo < 0) phiHi = phi;
-    else phiLo = phi;
-  }
+  const intrinsic = intrinsicLevelEv(layer, temperatureK, ecRefEv, evRefEv);
+  const offset = fermiOffsetFromNetDopingEv(netDoping, dos.niM3, temperatureK);
+  const phi = intrinsic + offset - fermiEv;
 
   const ec = ecRefEv - phi;
   const ev = evRefEv - phi;
-  const n = boltzmannElectronDensity(dos.NcM3, ec, fermiEv, kT);
-  const p = boltzmannHoleDensity(dos.NvM3, ev, fermiEv, kT);
+  const { nM3: n, pM3: p } = neutralCarrierDensities(netDoping, dos.niM3);
 
   return { phiV: phi, nM3: n, pM3: p, ecEv: ec, evEv: ev };
 }
@@ -74,19 +74,8 @@ export function findBulkFermi(
   const ev = evRefEv ?? ecRefEv - layer.bandGapEv;
   const dos = layerDosParams(layer, temperatureK);
   const net = layer.NdM3 - layer.NaM3;
-  const kT = (KB * temperatureK) / Q;
-
-  if (net > 0 && dos.NcM3 > dos.niM3) {
-    return ecRefEv - kT * Math.log(dos.NcM3 / layer.NdM3);
-  }
-  if (net < 0 && dos.NvM3 > dos.niM3) {
-    return ev + kT * Math.log(dos.NvM3 / layer.NaM3);
-  }
-
-  const ni = dos.niM3;
-  const discriminant = net * net + 4 * ni * ni;
-  const n = 0.5 * (net + Math.sqrt(discriminant));
-  return ecRefEv + kT * Math.log(Math.max(n / ni, 1e-30));
+  return intrinsicLevelEv(layer, temperatureK, ecRefEv, ev) +
+    fermiOffsetFromNetDopingEv(net, dos.niM3, temperatureK);
 }
 
 /** Find Fermi level where bulk electrostatic potential equals targetPhiV */
@@ -97,17 +86,7 @@ export function findFermiForBulkPhi(
   evRefEv: number,
   targetPhiV: number,
 ): number {
-  let eFLo = evRefEv - 2;
-  let eFHi = ecRefEv + 2;
-
-  for (let i = 0; i < 100; i++) {
-    const eFMid = 0.5 * (eFLo + eFHi);
-    const phi = bulkStateAtFermi(layer, temperatureK, eFMid, ecRefEv, evRefEv).phiV;
-    if (Math.abs(phi - targetPhiV) < 1e-10) return eFMid;
-    if (phi > targetPhiV) eFLo = eFMid;
-    else eFHi = eFMid;
-  }
-  return 0.5 * (eFLo + eFHi);
+  return findBulkFermi(layer, temperatureK, ecRefEv - targetPhiV, evRefEv - targetPhiV);
 }
 
 /** @deprecated Use findFermiForBulkPhi with right-contact reference instead */

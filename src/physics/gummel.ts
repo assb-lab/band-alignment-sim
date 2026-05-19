@@ -21,6 +21,7 @@ import type {
   BandProfile,
   ContactBoundary,
   ContactResultSummary,
+  ElectrodeMode,
   LayerStack,
   SimulationResult,
   SolverOptions,
@@ -129,6 +130,7 @@ function buildContactState(
   contactLeft: ContactBoundary,
   contactRight: ContactBoundary,
   Vapp: number,
+  electrodeMode: ElectrodeMode,
 ): ContactState {
   const sem = semiconductorLayers(stack);
   const leftLayer = sem[0]!;
@@ -144,6 +146,7 @@ function buildContactState(
     contactLeft,
     contactRight,
     Vapp,
+    electrodeMode,
   );
   return {
     eFLeft: pair.left.fermiEv,
@@ -369,6 +372,7 @@ function solveEquilibriumDopingContinuation(
       contactLeft,
       contactRight,
       0,
+      options.electrodeMode ?? "shorted",
     );
     const eF = 0.5 * (contacts.eFLeft + contacts.eFRight);
 
@@ -780,6 +784,7 @@ export function solveStack(
     contactLeft,
     contactRight,
     0,
+    options.electrodeMode ?? "shorted",
   );
   const eqPhi = solveEquilibriumPoisson(
     mesh,
@@ -793,7 +798,15 @@ export function solveStack(
 
   const contacts = atEquilibrium
     ? eqContacts
-    : buildContactState(semStack, ecRefEv, evRefEv, contactLeft, contactRight, options.Vapp);
+    : buildContactState(
+        semStack,
+        ecRefEv,
+        evRefEv,
+        contactLeft,
+        contactRight,
+        options.Vapp,
+        options.electrodeMode ?? "shorted",
+      );
 
   const phi = atEquilibrium
     ? eqPhi

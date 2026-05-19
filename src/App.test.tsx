@@ -2,6 +2,12 @@ import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App.tsx";
 
+async function waitForInitialRun() {
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: /Run simulation/i })).toBeEnabled();
+  });
+}
+
 describe("App integration", () => {
   afterEach(() => {
     cleanup();
@@ -11,6 +17,7 @@ describe("App integration", () => {
 
   it("runs simulation and renders band diagram paths", async () => {
     render(<App />);
+    await waitForInitialRun();
     fireEvent.click(screen.getByRole("button", { name: /Run simulation/i }));
     await waitFor(() => {
       expect(document.querySelectorAll("svg path").length).toBeGreaterThan(0);
@@ -72,6 +79,19 @@ describe("App integration", () => {
       expect(screen.getByDisplayValue("Library Test")).toBeInTheDocument();
     });
 
+    fireEvent.change(screen.getByDisplayValue("New material"), {
+      target: { value: "Library Test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create Library Test" }));
+    const overwriteMaterialDialog = await screen.findByRole("alertdialog", {
+      name: "Overwrite material?",
+    });
+    fireEvent.click(within(overwriteMaterialDialog).getByRole("button", { name: "Overwrite" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog", { name: "Overwrite material?" })).not.toBeInTheDocument();
+    });
+
     fireEvent.change(screen.getByDisplayValue("Library Test"), {
       target: { value: "Library Test Updated" },
     });
@@ -82,6 +102,10 @@ describe("App integration", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Delete Library Test Updated" }));
+    const deleteMaterialDialog = await screen.findByRole("alertdialog", {
+      name: "Delete material?",
+    });
+    fireEvent.click(within(deleteMaterialDialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(screen.queryByDisplayValue("Library Test Updated")).not.toBeInTheDocument();
@@ -107,6 +131,19 @@ describe("App integration", () => {
       expect(within(dialog).getByDisplayValue("Saved interface test")).toBeInTheDocument();
     });
 
+    fireEvent.change(within(dialog).getByDisplayValue("Current interface"), {
+      target: { value: "Saved interface test" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save current interface" }));
+    const overwriteDialog = await screen.findByRole("alertdialog", {
+      name: "Overwrite interface?",
+    });
+    expect(overwriteDialog).toHaveTextContent("Saved interface test");
+    fireEvent.click(within(overwriteDialog).getByRole("button", { name: "Overwrite" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog", { name: "Overwrite interface?" })).not.toBeInTheDocument();
+    });
+
     fireEvent.change(within(dialog).getByDisplayValue("Saved interface test"), {
       target: { value: "Saved interface updated" },
     });
@@ -117,6 +154,9 @@ describe("App integration", () => {
     });
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete Saved interface updated" }));
+    const deleteDialog = await screen.findByRole("alertdialog", { name: "Delete interface?" });
+    expect(deleteDialog).toHaveTextContent("Saved interface updated");
+    fireEvent.click(within(deleteDialog).getByRole("button", { name: "Delete" }));
     await waitFor(() => {
       expect(within(dialog).queryByDisplayValue("Saved interface updated")).not.toBeInTheDocument();
     });
@@ -141,7 +181,6 @@ describe("App integration", () => {
 
   it("switches secondary plot tabs", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /Run simulation/i }));
     await waitFor(() => {
       expect(document.querySelectorAll("svg path").length).toBeGreaterThan(0);
     });
@@ -154,7 +193,6 @@ describe("App integration", () => {
 
   it("shows spinner while simulation runs", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /Run simulation/i }));
     expect(screen.getByRole("status", { busy: true })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.queryByRole("status", { busy: true })).not.toBeInTheDocument();

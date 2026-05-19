@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { runSimulation, terminateSimulationWorker } from "../lib/simulationClient.ts";
-import type { LayerStack, SimulationResult, SolverOptions } from "../physics/types.ts";
+import type {
+  ElectrodeMode,
+  LayerStack,
+  SimulationResult,
+  SolverOptions,
+} from "../physics/types.ts";
 import { DEFAULT_SOLVER_OPTIONS, ConvergenceError } from "../physics/types.ts";
 import { StackValidationError } from "../physics/stackContacts.ts";
 import {
   layerToRow,
+  isLayerRowEnabled,
   rowToLayer,
   type LayerRow,
 } from "../lib/layerForm.ts";
@@ -18,6 +24,7 @@ export interface SimulationState {
   maxGummelIter: number;
   maxNewtonIter: number;
   maxRelativeResidual: number;
+  electrodeMode: ElectrodeMode;
   result: SimulationResult | null;
   error: string | null;
   running: boolean;
@@ -39,6 +46,7 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
   const [maxGummelIter, setMaxGummelIter] = useState(DEFAULT_SOLVER_OPTIONS.maxGummelIter);
   const [maxNewtonIter, setMaxNewtonIter] = useState(DEFAULT_SOLVER_OPTIONS.maxNewtonIter);
   const [maxRelativeResidual, setMaxRelativeResidual] = useState(2);
+  const [electrodeMode, setElectrodeMode] = useState<ElectrodeMode>("shorted");
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -47,7 +55,7 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
   const stack: LayerStack = useMemo(
     () => ({
       temperatureK,
-      layers: rows.map((row) => rowToLayer(row, temperatureK)),
+      layers: rows.filter(isLayerRowEnabled).map((row) => rowToLayer(row, temperatureK)),
     }),
     [rows, temperatureK],
   );
@@ -66,6 +74,7 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
       maxGummelIter,
       maxNewtonIter,
       maxRelativeResidual,
+      electrodeMode,
       Vapp,
     };
 
@@ -84,7 +93,16 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
           setRunning(false);
         }
       }) as Promise<void>;
-  }, [stack, nodesPerNm, tol, maxGummelIter, maxNewtonIter, maxRelativeResidual, Vapp]);
+  }, [
+    stack,
+    nodesPerNm,
+    tol,
+    maxGummelIter,
+    maxNewtonIter,
+    maxRelativeResidual,
+    electrodeMode,
+    Vapp,
+  ]);
 
   const loadRows = useCallback((next: LayerRow[]) => {
     setRows(next);
@@ -109,6 +127,8 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
     setMaxNewtonIter,
     maxRelativeResidual,
     setMaxRelativeResidual,
+    electrodeMode,
+    setElectrodeMode,
     result,
     error,
     running,
