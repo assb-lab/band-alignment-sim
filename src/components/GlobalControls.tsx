@@ -50,6 +50,7 @@ export function GlobalControls({
   onLiveCalcChange,
   onRun,
 }: GlobalControlsProps) {
+  const biasEnabled = electrodeMode === "bias";
   return (
     <div className="flex flex-wrap items-end gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
       <label className="flex flex-col gap-1 text-sm text-slate-700">
@@ -68,7 +69,8 @@ export function GlobalControls({
           type="number"
           {...numericInputAttrs}
           step="0.05"
-          className="w-24 rounded border border-slate-300 bg-white px-2 py-1 text-slate-950"
+          disabled={!biasEnabled}
+          className="w-24 rounded border border-slate-300 bg-white px-2 py-1 text-slate-950 disabled:bg-slate-100 disabled:text-slate-400"
           value={Vapp}
           onChange={(e) => onVappChange(Number(e.target.value))}
         />

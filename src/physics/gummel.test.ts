@@ -39,4 +39,13 @@ describe("gummel with bias", () => {
     expect(maxDeviationFromRamp).toBeGreaterThan(0.02);
   });
 
+  it("reduces homojunction band bending near the built-in voltage", () => {
+    const eq = solveStack(siPnStack(), { ...solverOpts, Vapp: 0 });
+    const flatBias = solveStack(siPnStack(), { ...solverOpts, Vapp: eq.builtInVoltageV });
+    const eqRange = Math.max(...eq.bands.ecEv) - Math.min(...eq.bands.ecEv);
+    const biasedRange = Math.max(...flatBias.bands.ecEv) - Math.min(...flatBias.bands.ecEv);
+
+    expect(biasedRange).toBeLessThan(eqRange * 0.75);
+  });
+
 });

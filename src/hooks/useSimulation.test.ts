@@ -36,6 +36,26 @@ describe("useSimulation", () => {
     expect(result.current.running).toBe(false);
   });
 
+  it("ignores Vapp unless applied-bias mode is selected", async () => {
+    const rows = siPnStack().layers.map((l, i) => layerToRow(l, `bias-${i}`));
+    const { result } = renderHook(() => useSimulation(rows));
+    act(() => {
+      result.current.setVapp(0.3);
+    });
+    await act(async () => {
+      await result.current.run();
+    });
+    expect(result.current.result?.appliedVoltageV).toBe(0);
+
+    act(() => {
+      result.current.setElectrodeMode("bias");
+    });
+    await act(async () => {
+      await result.current.run();
+    });
+    expect(result.current.result?.appliedVoltageV).toBeCloseTo(0.3);
+  });
+
   it("sets running while solve is in flight", async () => {
     const rows = siPnStack().layers.map((l, i) => layerToRow(l, `run-${i}`));
     const { result } = renderHook(() => useSimulation(rows));

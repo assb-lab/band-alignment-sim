@@ -416,6 +416,7 @@ describe("components", () => {
     );
     expect(screen.getByText("Solver failed")).toBeTruthy();
     expect(screen.getByRole("button", { name: /計算中/i })).toBeDisabled();
+    expect(screen.getByLabelText(/Vapp \[V\]/)).toBeDisabled();
   });
 
   it("shows built-in voltage in global controls", () => {
@@ -479,20 +480,20 @@ describe("components", () => {
     fireEvent.click(screen.getByLabelText(/^Live$/i));
     expect(live).toBe(true);
     fireEvent.change(screen.getByLabelText(/T \[K\]/), { target: { value: "350" } });
-    fireEvent.change(screen.getByLabelText(/Vapp \[V\]/), { target: { value: "0.3" } });
+    expect(screen.getByLabelText(/Vapp \[V\]/)).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/^Mode$/), { target: { value: "bias" } });
     fireEvent.change(screen.getByLabelText(/nodes\/nm/), { target: { value: "3" } });
     fireEvent.change(screen.getByLabelText(/^tol$/), { target: { value: "0.0001" } });
     fireEvent.change(screen.getByLabelText(/rel limit/), { target: { value: "3" } });
-    fireEvent.change(screen.getByLabelText(/^Mode$/), { target: { value: "open" } });
     fireEvent.change(screen.getByLabelText(/Gummel/), { target: { value: "120" } });
     fireEvent.change(screen.getByLabelText(/Newton/), { target: { value: "900" } });
     fireEvent.click(screen.getByRole("button", { name: /Run simulation/i }));
     expect(t).toBe(350);
-    expect(v).toBe(0.3);
+    expect(v).toBe(0.2);
     expect(n).toBe(3);
     expect(tol).toBe(0.0001);
     expect(rel).toBe(3);
-    expect(mode).toBe("open");
+    expect(mode).toBe("bias");
     expect(gummel).toBe(120);
     expect(newton).toBe(900);
     expect(ran).toBe(true);

@@ -1,104 +1,128 @@
 # 半導体バンドアライメントシミュレータ
 
-1D 多層半導体スタックの **ポアソン方程式数値解** から導電帯 \(E_c\)、価電帯 \(E_v\)、準フェルミ準位 \(E_{Fn}, E_{Fp}\) を計算し、D3.js で可視化する Web アプリです。
+1D 多層半導体スタックの平衡ポアソン + Boltzmann キャリアを解き、導電帯 `Ec`、価電子帯 `Ev`、フェルミ準位/準フェルミ準位を D3.js で可視化する React + TypeScript + Vite アプリです。金属接触は専用 UI ではなく、層テーブルの `Metal` 行として扱います。
 
 ## セットアップ
 
 ```bash
 pnpm install
-pnpm dev      # 開発サーバ
-pnpm test     # 単体・統合テスト
+pnpm dev
+pnpm test
 pnpm test:coverage
 pnpm build
+pnpm lint
 ```
+
+## 使い方
+
+1. `Materials` で材料定数、`Interfaces` でスタック一式を管理します。
+2. テーブルの `+ Add` で行を追加し、`Type` で `Semiconductor` / `Metal` を切り替えます。
+3. `On` チェックで層を一時的に無効化できます。緩衝層あり/なし比較に使います。
+4. `Mode` を選び、必要なら `Run simulation` を押します。`Live` が有効なら入力変更で再計算します。
+5. plot はドラッグで範囲ズーム、ダブルクリックでリセット、右クリックで SVG/PNG/ITX を出力できます。
+
+## 電極モード
+
+| Mode | 意味 | `Vapp` |
+|------|------|--------|
+| `Shorted equilibrium` | 両端金属が短絡され、左右の金属 EF を一致させる | 無効 |
+| `Open circuit` | 左右金属 EF を各金属の仕事関数/電極電位で保持する | 無効 |
+| `Applied bias` | 左端基準で右端 EF を `Vapp` だけずらす | 有効 |
+
+`Shorted equilibrium` と `Open circuit` では `Vapp` 入力は UI 上も solver 入力上も無効です。`Vapp` がバンド構造に効くのは `Applied bias` のときだけです。
 
 ## 物理モデル
 
-### 支配方程式（定常 1D）
+### 支配方程式
 
-| 式 | 内容 |
-|----|------|
-| ポアソン | \(\dfrac{d}{dx}\left(\varepsilon \dfrac{d\phi}{dx}\right) = -q(p - n + N_d^+ - N_a^-)\) |
-| キャリア統計 | 非縮退 Boltzmann: \(n = n_i \exp\dfrac{E_{Fn}-E_c}{k_BT}\), \(p = n_i \exp\dfrac{E_v-E_{Fp}}{k_BT}\) |
-| 連続性（バイアス） | Scharfetter–Gummel 離散化による drift-diffusion 電流（第1版は平衡解ベースの近似） |
+| 項目 | 実装 |
+|------|------|
+| ポアソン | `d/dx(epsilon dphi/dx) = -q(p - n + Nd - Na)` |
+| 電子密度 | `n = Nc exp(-(Ec - EFn) / kBT)` |
+| 正孔密度 | `p = Nv exp(-(EFp - Ev) / kBT)` |
+| バンド | `Ec = Ec_ref - phi`, `Ev = Ev_ref - phi` |
+
+内部計算は SI 単位です。UI では nm、eV、cm^-3 を使い、`src/lib/layerForm.ts` と `src/physics/units.ts` で変換します。
 
 ### 境界条件
 
-- **オーミック接触**: スタックの両端が半導体層のとき、両端をバルク準中性（準フェルミ準位はデバイス全体で共通）
-- **Schottky 金属接触**: 層テーブルで **Metal** 行をスタックの先頭または末尾に置く（厚みは表示用、メッシュには含めない）。隣接半導体界面で Schottky–Mott 則を適用
-  - 電子バリア \(\Phi_{Bn} = \Phi_m - \chi\)
-  - 正孔バリア \(\Phi_{Bp} = (\chi + E_g) - \Phi_m\)
-  - 表面で \(E_F = \Phi_m\)（バイアス時は右端金属で \(\Phi_m + V_{app}\)）、\(\phi_s = E_{c,\mathrm{ref}} + \chi - 2\Phi_m\)
-- **印加バイアス \(V_{app}\)**: 右端 Schottky 金属の準フェルミを \(+V_{app}\) シフト
-- **界面**: 電位 \(\phi\) は連続、\(E_c, E_v\) は \(\Delta E_c, \Delta E_v\) で不連続（半導体同士）。金属はスタック中間に置けない
+- 両端が半導体ならオーミック接触として扱います。
+- 端に `Metal` 行がある場合、その端は Schottky 接触として扱います。
+- 金属厚みは表示・エクスポート上の領域幅には反映しますが、半導体メッシュと Poisson 計算には入りません。
+- 理想 Schottky-Mott を仮定し、界面状態・イメージフォース・トンネルは未実装です。
 
-### 数値解法
+### バイアス計算
 
-1. 多層メッシュ生成（厚さ・`nodes/nm` からノード数決定）
-2. 平衡: 非線形ポアソンを Picard + 三対角求解（Newton も利用可能）
-3. バイアス: 平衡解を接触電位に合わせてシフトし、SG 式で接触電流密度を評価
-4. 組込電位 \(V_{bi} = \phi_n - \phi_p - E_g\)（同質 pn 接合で解析式と照合済み）
+平衡時は非線形 Poisson を自己無撞着に解きます。
 
-内部計算は **SI 単位**（m, V, m\(^{-3}\)）。UI では nm、eV、cm\(^{-3}\)、cm\(^2\)/Vs を使用し、入出力境界で変換します。
+`Applied bias` は現在、実験的な近似です。平衡解を初期値にして biased boundary condition の非線形 Poisson を再求解し、SG 形の抵抗座標で `Efn` / `Efp` を更新します。ただし、完全な drift-diffusion 連成ではありません。
 
-## 入力パラメータ
+特に注意点:
 
-各層（行）の **Type** で半導体 / 金属を選択:
+- applied bias 時の黒破線は平衡 EF ではなく、実質的に `Efn` です。
+- `Efn` と `Efp` の分離表示は今後の改善対象です。
+- `Vapp ~= Vbi` の flat-band 比較は、物理解釈と表示設計をまだ整理中です。
+- 電流値は表示・出力していません。移動度列も現在のテーブルからは除外しています。
+
+## 入力列
 
 | Type | 主な列 |
 |------|--------|
-| Semiconductor | Material, 厚さ \(t\) [nm], \(\varepsilon_r\), \(E_g\), \(\chi\), \(N_c,N_v\), \(N_d,N_a\), \(\mu_n,\mu_p\), \(\Delta E_c,\Delta E_v\) |
-| Metal | Material, **\(\Phi_m\)** [eV]（仕事関数。厚みは表示のみ） |
+| `Semiconductor` | `Material`, `t [nm]`, `epsilon_r`, `EA [eV]`, `IP [eV]`, `Eg [eV]`, `Nc`, `Nv`, `Doping`, `Phi [eV]`, `Nd`, `Na` |
+| `Metal` | `Material`, `t [nm]`, `Phi_m [eV]` |
 
-半導体行の詳細:
+`EA` は電子親和力、`IP` はイオン化ポテンシャルです。`Eg = IP - EA` は重要な派生値として表示しますが、直接編集列ではありません。
 
-| 列 | 記号 | UI 単位 |
-|----|------|---------|
-| Material | label | — |
-| 厚さ | \(t\) | nm |
-| 誘電率 | \(\varepsilon_r\) | — |
-| バンドギャップ | \(E_g\) | eV |
-| 電子親和力 | \(\chi\) | eV |
-| 有効状態密度 | \(N_c, N_v\) | cm\(^{-3}\) |
-| 本征キャリア | \(n_i\) | cm\(^{-3}\)（任意、未指定時は \(N_c,N_v,E_g,T\) から算出） |
-| ドーピング | \(N_d, N_a\) | cm\(^{-3}\) |
-| 移動度 | \(\mu_n, \mu_p\) | cm\(^2\)/Vs |
-| 界面オフセット | \(\Delta E_c, \Delta E_v\) | eV（最上層は 0） |
+半導体の doping は次のどちらかで指定できます。
 
-グローバル: 温度 \(T\) [K]、\(V_{app}\) [V]、メッシュ密度 `nodes/nm`
+- `Phi`: 仕事関数 `Phi [eV]` から 300 K 基準で `Nd` / `Na` を換算
+- `Nd/Na`: `Nd` / `Na` から 300 K 基準で `Phi [eV]` を換算
 
-## プリセット
+## 図とエクスポート
 
-- **Si pn 接合** — 半導体 2 層（両端オーミック）
-- **GaAs/AlGaAs ヘテロ** — 半導体 3 層
-- **Si Schottky** — Metal（Au, \(\Phi_m=4.8\) eV）+ n-Si、右端オーミック
+- 接合前バンド図は Run 前でも現在の table rows から live preview します。
+- 接合前バンド図は材料幅を `Equal` / `Thickness` で切り替えできます。デフォルトは `Equal` です。
+- 接合後バンド図は `Ec` を赤、`Ev` を青、金属 EF を黒実線で表示します。
+- 右クリックメニューから `Export SVG` / `Export PNG` / `Export ITX` を出力できます。
+- ITX は Igor Pro 用に、データ wave と基本 plot command を含みます。
 
-`src/presets/materials.ts` に定義されています。
+## 材料・界面ライブラリ
+
+- `Materials`: 単一材料の定数を CRUD します。built-in は読み取り専用です。
+- built-in 半導体は `n-Si` / `p-Si` のように p/n variant として登録しています。
+- `Interfaces`: 完全な layer stack を CRUD します。材料定数ではなく、界面・積層構造の保存先です。
+- 保存済み material/interface の上書き・削除はアプリ内モーダルで確認します。ブラウザ標準 dialog は使いません。
 
 ## プロジェクト構成
 
-```
+```text
 src/
-  physics/     # React 非依存のソルバ（テスト重点）
-  components/  # LayerTable, GlobalControls, BandDiagram
-  hooks/       # useSimulation
-  presets/     # 材料プリセット
+  physics/     React 非依存の物理・数値ソルバ
+  components/  テーブル、モーダル、plot UI
+  hooks/       useSimulation
+  lib/         UI/物理変換、template、export helper
+  presets/     built-in materials / interface examples
+  workers/     simulation worker
 ```
 
 ## 既知の制限
 
-- **非縮退 Boltzmann のみ**（高ドーピング・量子効果は対象外）
-- **完全電離** \(N_d^+ = N_d\), \(N_a^- = N_a\)
-- **1D・定常**。トラップ・光生成・SRH 再結合は第1版未実装
-- **平衡**はポアソン連成の数値解。**バイアス**は平衡解 + 接触電位シフト + SG 電流評価の近似（完全 Gummel drift-diffusion 連成ではない）
-- **Schottky** は理想 Schottky–Mott（界面状態・イメージフォース・トンネルは未実装）
-- 強ヘテロ・高ドーピングでは収束が遅い、または失敗する場合あり（UI にエラー表示）
-- 強バイアスで数値不安定になることがある
+- 非縮退 Boltzmann のみです。縮退半導体・高ドーピング補正は未対応です。
+- 完全電離、1D、定常、トラップなし、光生成なしです。
+- Schottky は理想 Schottky-Mott です。
+- bias 下の drift-diffusion は実験的近似で、完全な電流連続・再結合・移動度依存の DD solver ではありません。
+- applied bias の `EF` 表示は今後 `Efn` / `Efp` に分けて整理する必要があります。
+- 強ヘテロ接合、高ドーピング、強バイアスでは収束が遅い、または失敗する場合があります。
 
 ## テスト
 
-古典派 TDD。物理コアは実ソルバを直接呼び出し、モックは最小限（DOM サイズ取得など）です。Vitest カバレッジ閾値: **80%**（lines / branches / functions / statements）。
+Vitest + Testing Library を使います。物理コアはモックせず `solveStack` を直接呼びます。カバレッジ閾値は 80% です。
+
+```bash
+pnpm test
+pnpm test:coverage
+```
 
 ## ライセンス
 
-MIT（テンプレートに準拠）
+MIT

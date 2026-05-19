@@ -75,7 +75,7 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
       maxNewtonIter,
       maxRelativeResidual,
       electrodeMode,
-      Vapp,
+      Vapp: electrodeMode === "bias" ? Vapp : 0,
     };
 
     return runSimulation(stack, options)

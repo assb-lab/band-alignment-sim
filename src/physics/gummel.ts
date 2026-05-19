@@ -4,7 +4,7 @@ import {
   computeBands,
   electricField,
 } from "./bands.ts";
-import { EPS0, Q } from "./constants.ts";
+import { EPS0, KB, Q } from "./constants.ts";
 import { bulkStateAtFermi } from "./bulkNeutral.ts";
 import { resolveContacts, type ResolvedContact } from "./contacts.ts";
 import { buildBandReferences, buildMesh } from "./mesh.ts";
@@ -50,6 +50,93 @@ function quasiFermiProfile(
     eFpEv[i] = eFpLeft + t * (eFpRight - eFpLeft);
   }
   return { eFnEv, eFpEv };
+}
+
+function transportCoordinate(
+  mesh: ReturnType<typeof buildMesh>,
+  logConductance: Float64Array,
+): Float64Array | null {
+  const count = mesh.nodes.length;
+  if (count < 2) return null;
+  let maxLog = -Infinity;
+  for (const value of logConductance) {
+    if (Number.isFinite(value)) maxLog = Math.max(maxLog, value);
+  }
+  if (!Number.isFinite(maxLog)) return null;
+
+  const conductance = new Float64Array(count);
+  for (let i = 0; i < count; i++) {
+    conductance[i] = Math.exp(Math.max(-700, Math.min(0, logConductance[i]! - maxLog)));
+  }
+
+  const coord = new Float64Array(count);
+  for (let i = 1; i < count; i++) {
+    const avgConductance = Math.max(0.5 * (conductance[i - 1]! + conductance[i]!), 1e-300);
+    coord[i] = coord[i - 1]! + mesh.dxM[i - 1]! / avgConductance;
+  }
+  const total = coord[count - 1]!;
+  if (!Number.isFinite(total) || total <= 0) return null;
+  for (let i = 1; i < count; i++) coord[i] = coord[i]! / total;
+  coord[0] = 0;
+  coord[count - 1] = 1;
+  return coord;
+}
+
+function interpolateLogPotential(
+  leftEv: number,
+  rightEv: number,
+  kT: number,
+  coord: Float64Array,
+  sign: 1 | -1,
+): Float64Array {
+  const count = coord.length;
+  const result = new Float64Array(count);
+  const leftSigned = sign * leftEv;
+  const rightSigned = sign * rightEv;
+  const ref = Math.max(leftSigned, rightSigned);
+  const left = Math.exp(Math.max(-700, Math.min(0, (leftSigned - ref) / kT)));
+  const right = Math.exp(Math.max(-700, Math.min(0, (rightSigned - ref) / kT)));
+  for (let i = 0; i < count; i++) {
+    const value = left + coord[i]! * (right - left);
+    result[i] = sign * (ref + kT * Math.log(Math.max(value, 1e-300)));
+  }
+  result[0] = leftEv;
+  result[count - 1] = rightEv;
+  return result;
+}
+
+function driftDiffusionQuasiFermiProfile(
+  mesh: ReturnType<typeof buildMesh>,
+  phiV: Float64Array,
+  temperatureK: number,
+  eFnLeft: number,
+  eFpLeft: number,
+  eFnRight: number,
+  eFpRight: number,
+): { eFnEv: Float64Array; eFpEv: Float64Array } {
+  const count = mesh.nodes.length;
+  const kT = (KB * temperatureK) / Q;
+  const electronLogConductance = new Float64Array(count);
+  const holeLogConductance = new Float64Array(count);
+
+  for (let i = 0; i < count; i++) {
+    const node = mesh.nodes[i]!;
+    const ec = node.ecRefEv - phiV[i]!;
+    const ev = node.evRefEv - phiV[i]!;
+    electronLogConductance[i] = Math.log(Math.max(node.NcM3, 1)) - ec / kT;
+    holeLogConductance[i] = Math.log(Math.max(node.NvM3, 1)) + ev / kT;
+  }
+
+  const electronCoord = transportCoordinate(mesh, electronLogConductance);
+  const holeCoord = transportCoordinate(mesh, holeLogConductance);
+  if (!electronCoord || !holeCoord) {
+    return quasiFermiProfile(mesh, count, eFnLeft, eFpLeft, eFnRight, eFpRight);
+  }
+
+  return {
+    eFnEv: interpolateLogPotential(eFnLeft, eFnRight, kT, electronCoord, 1),
+    eFpEv: interpolateLogPotential(eFpLeft, eFpRight, kT, holeCoord, -1),
+  };
 }
 
 interface ContactState {
@@ -637,11 +724,77 @@ function solveBiasedPoisson(
   eqPhi: Float64Array,
 ): Float64Array {
   void eqContacts;
-  void options;
-  const phi = applyBiasToPhi(mesh, stack, eqPhi, contacts.phiLeft, contacts.phiRight);
+  let phi = applyBiasToPhi(mesh, stack, eqPhi, contacts.phiLeft, contacts.phiRight);
   if (!isFiniteArray(phi)) {
     throw new ConvergenceError("Biased Poisson approximation produced non-finite values");
   }
+
+  let { eFnEv, eFpEv } = driftDiffusionQuasiFermiProfile(
+    mesh,
+    phi,
+    stack.temperatureK,
+    contacts.eFLeft,
+    contacts.eFLeft,
+    contacts.eFRight,
+    contacts.eFRight,
+  );
+  const poissonCtx: PoissonContext = {
+    mesh,
+    temperatureK: stack.temperatureK,
+    eFnEv,
+    eFpEv,
+    useBoltzmann: true,
+  };
+
+  for (let iter = 0; iter < Math.max(1, options.maxGummelIter); iter++) {
+    const previous = new Float64Array(phi);
+    const previousEFn = new Float64Array(eFnEv);
+    const previousEFp = new Float64Array(eFpEv);
+    poissonCtx.eFnEv = eFnEv;
+    poissonCtx.eFpEv = eFpEv;
+    const solved = solvePoissonNewton(
+      poissonCtx,
+      phi,
+      contacts.phiLeft,
+      contacts.phiRight,
+      options.maxNewtonIter,
+      options.tol,
+    );
+    if (!isFiniteArray(solved)) {
+      throw new ConvergenceError("Biased Poisson solver produced non-finite values");
+    }
+
+    const change = relativeChange(previous, solved);
+    phi = solved;
+    const nextQuasiFermi = driftDiffusionQuasiFermiProfile(
+      mesh,
+      phi,
+      stack.temperatureK,
+      contacts.eFLeft,
+      contacts.eFLeft,
+      contacts.eFRight,
+      contacts.eFRight,
+    );
+    eFnEv = nextQuasiFermi.eFnEv;
+    eFpEv = nextQuasiFermi.eFpEv;
+    const qfChange = Math.max(
+      relativeChange(previousEFn, eFnEv),
+      relativeChange(previousEFp, eFpEv),
+    );
+    if (Math.max(change, qfChange) < options.tol) break;
+  }
+
+  poissonCtx.eFnEv = eFnEv;
+  poissonCtx.eFpEv = eFpEv;
+  const poissonRes = poissonResidualNorm(poissonCtx, phi);
+  const relRes = poissonRes / poissonChargeScale(poissonCtx, phi);
+  const relLimit = poissonRelLimit(stack, options);
+  if (relRes > relLimit && poissonRes > options.tol) {
+    throw new ConvergenceError(
+      `Biased Poisson solver did not converge (residual=${poissonRes.toExponential(2)}, rel=${relRes.toExponential(2)})`,
+    );
+  }
+
   return phi;
 }
 
@@ -812,14 +965,24 @@ export function solveStack(
     ? eqPhi
     : solveBiasedPoisson(mesh, semStack, contacts, eqContacts, options, eqPhi);
 
-  const { eFnEv, eFpEv } = quasiFermiProfile(
-    mesh,
-    count,
-    contacts.eFLeft,
-    contacts.eFLeft,
-    contacts.eFRight,
-    contacts.eFRight,
-  );
+  const { eFnEv, eFpEv } = atEquilibrium
+    ? quasiFermiProfile(
+        mesh,
+        count,
+        contacts.eFLeft,
+        contacts.eFLeft,
+        contacts.eFRight,
+        contacts.eFRight,
+      )
+    : driftDiffusionQuasiFermiProfile(
+        mesh,
+        phi,
+        stack.temperatureK,
+        contacts.eFLeft,
+        contacts.eFLeft,
+        contacts.eFRight,
+        contacts.eFRight,
+      );
 
   const { nM3: n, pM3: p } = carrierDensities(mesh, phi, eFnEv, eFpEv, stack.temperatureK);
 
