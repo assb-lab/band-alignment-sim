@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -12,7 +13,12 @@ import type {
   SimulationResult,
 } from "../physics/types.ts";
 import { mToNm } from "../physics/units.ts";
-import { perM3ToPerCm3 } from "../physics/units.ts";
+import {
+  postContactItx,
+  preContactItx,
+  secondaryPlotData,
+  secondaryPlotItx,
+} from "../lib/plotItx.ts";
 
 interface BandDiagramProps {
   result: SimulationResult | null;
@@ -24,6 +30,8 @@ type DragZoomMode = "x" | "y" | "xy";
 type Domain = [number, number];
 type YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>;
 let clipIdCounter = 0;
+let exportMenuIdCounter = 0;
+const PLOT_EXPORT_MENU_EVENT = "plot-export-menu-open";
 interface ZoomDomain {
   key: object;
   tab?: string;
@@ -115,6 +123,10 @@ function downloadSvg(svg: SVGSVGElement, filename: string) {
   triggerDownload(new Blob([serializedSvg(svg)], { type: "image/svg+xml;charset=utf-8" }), filename);
 }
 
+function downloadItx(itx: string, filename: string) {
+  triggerDownload(new Blob([itx], { type: "text/plain;charset=utf-8" }), filename);
+}
+
 function downloadPng(svg: SVGSVGElement, filename: string) {
   const svgBlob = new Blob([serializedSvg(svg)], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(svgBlob);
@@ -141,10 +153,26 @@ function downloadPng(svg: SVGSVGElement, filename: string) {
   image.src = url;
 }
 
-function usePlotExportMenu(svgRef: RefObject<SVGSVGElement | null>, filenameBase: string) {
+function usePlotExportMenu(
+  svgRef: RefObject<SVGSVGElement | null>,
+  filenameBase: string,
+  getItx?: () => string | null,
+) {
   const [menu, setMenu] = useState<PlotContextMenuState | null>(null);
+  const menuId = useRef(`plot-export-menu-${exportMenuIdCounter++}`);
+
+  useEffect(() => {
+    const closeOtherMenu = (event: Event) => {
+      if (!(event instanceof CustomEvent) || event.detail === menuId.current) return;
+      setMenu(null);
+    };
+    window.addEventListener(PLOT_EXPORT_MENU_EVENT, closeOtherMenu);
+    return () => window.removeEventListener(PLOT_EXPORT_MENU_EVENT, closeOtherMenu);
+  }, []);
+
   const openMenu = (event: ReactMouseEvent<SVGSVGElement>) => {
     event.preventDefault();
+    window.dispatchEvent(new CustomEvent(PLOT_EXPORT_MENU_EVENT, { detail: menuId.current }));
     setMenu({ x: event.clientX, y: event.clientY });
   };
   const closeMenu = () => setMenu(null);
@@ -156,18 +184,25 @@ function usePlotExportMenu(svgRef: RefObject<SVGSVGElement | null>, filenameBase
     if (svgRef.current) downloadPng(svgRef.current, `${filenameBase}.png`);
     closeMenu();
   };
-  return { menu, openMenu, closeMenu, exportSvg, exportPng };
+  const exportItx = () => {
+    const itx = getItx?.();
+    if (itx) downloadItx(itx, `${filenameBase}.itx`);
+    closeMenu();
+  };
+  return { menu, openMenu, closeMenu, exportSvg, exportPng, exportItx };
 }
 
 function PlotContextMenu({
   menu,
   onExportSvg,
   onExportPng,
+  onExportItx,
   onClose,
 }: {
   menu: PlotContextMenuState | null;
   onExportSvg: () => void;
   onExportPng: () => void;
+  onExportItx: () => void;
   onClose: () => void;
 }) {
   if (!menu) return null;
@@ -194,9 +229,18 @@ function PlotContextMenu({
       >
         Export PNG
       </button>
+      <button
+        type="button"
+        role="menuitem"
+        className="block w-full px-3 py-1.5 text-left text-slate-800 hover:bg-slate-100"
+        onClick={onExportItx}
+      >
+        Export ITX
+      </button>
     </div>
   );
 }
+
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -266,6 +310,7 @@ function installDragZoom(
   let panYDomain: Domain | null = null;
   let nextPanXDomain: Domain | null = null;
   let nextPanYDomain: Domain | null = null;
+  let removePanListeners: (() => void) | null = null;
   const selection = g
     .append("rect")
     .attr("display", "none")
@@ -288,6 +333,29 @@ function installDragZoom(
       .attr("y", rect.y)
       .attr("width", rect.width)
       .attr("height", rect.height);
+  };
+  const resetPan = () => {
+    removePanListeners?.();
+    removePanListeners = null;
+    panStart = null;
+    panXDomain = null;
+    panYDomain = null;
+    nextPanXDomain = null;
+    nextPanYDomain = null;
+    interaction.style("cursor", "crosshair");
+  };
+  const updatePan = (clientX: number, clientY: number, rect: DOMRect) => {
+    if (!panStart || !panXDomain || !panYDomain) return;
+    const currentPan: [number, number] = [
+      clamp(clientX - rect.left, 0, innerW),
+      clamp(clientY - rect.top, 0, innerH),
+    ];
+    const xDelta = x.invert(panStart[0]) - x.invert(currentPan[0]);
+    const yDelta = y.invert(panStart[1]) - y.invert(currentPan[1]);
+    nextPanXDomain = panDomain(panXDomain, xDelta);
+    nextPanYDomain = panDomain(panYDomain, yDelta);
+    setXDomain(nextPanXDomain);
+    setYDomain(nextPanYDomain);
   };
 
   const interaction = g
@@ -345,6 +413,24 @@ function installDragZoom(
         nextPanYDomain = panYDomain;
         selection.attr("display", "none");
         interaction.style("cursor", "grab");
+        const targetRect = (this as SVGRectElement).getBoundingClientRect();
+        const onWindowMove = (moveEvent: PointerEvent) => {
+          updatePan(moveEvent.clientX, moveEvent.clientY, targetRect);
+          moveEvent.preventDefault();
+        };
+        const onWindowUp = (upEvent: PointerEvent) => {
+          updatePan(upEvent.clientX, upEvent.clientY, targetRect);
+          resetPan();
+          upEvent.preventDefault();
+        };
+        window.addEventListener("pointermove", onWindowMove);
+        window.addEventListener("pointerup", onWindowUp, { once: true });
+        window.addEventListener("pointercancel", onWindowUp, { once: true });
+        removePanListeners = () => {
+          window.removeEventListener("pointermove", onWindowMove);
+          window.removeEventListener("pointerup", onWindowUp);
+          window.removeEventListener("pointercancel", onWindowUp);
+        };
       } else {
         start = [clamp(px, 0, innerW), clamp(py, 0, innerH)];
         current = start;
@@ -354,12 +440,7 @@ function installDragZoom(
     })
     .on("pointermove", function (event: PointerEvent) {
       if (panStart && panXDomain && panYDomain) {
-        const [px, py] = localPointer(event, this);
-        const currentPan: [number, number] = [clamp(px, 0, innerW), clamp(py, 0, innerH)];
-        const xDelta = x.invert(panStart[0]) - x.invert(currentPan[0]);
-        const yDelta = y.invert(panStart[1]) - y.invert(currentPan[1]);
-        nextPanXDomain = panDomain(panXDomain, xDelta);
-        nextPanYDomain = panDomain(panYDomain, yDelta);
+        updatePan(event.clientX, event.clientY, (this as SVGRectElement).getBoundingClientRect());
         event.preventDefault();
         return;
       }
@@ -371,14 +452,8 @@ function installDragZoom(
     })
     .on("pointerup pointercancel", function (event: PointerEvent) {
       if (panStart) {
-        if (nextPanXDomain) setXDomain(nextPanXDomain);
-        if (nextPanYDomain) setYDomain(nextPanYDomain);
-        panStart = null;
-        panXDomain = null;
-        panYDomain = null;
-        nextPanXDomain = null;
-        nextPanYDomain = null;
-        interaction.style("cursor", "crosshair");
+        updatePan(event.clientX, event.clientY, (this as SVGRectElement).getBoundingClientRect());
+        resetPan();
         event.preventDefault();
         return;
       }
@@ -406,7 +481,11 @@ export function BandDiagram({ result, width = 920, height = 420 }: BandDiagramPr
   const [containerRef, drawWidth] = useElementWidth(width);
   const [xZoom, setXZoom] = useState<ZoomDomain | null>(null);
   const [yZoom, setYZoom] = useState<ZoomDomain | null>(null);
-  const exportMenu = usePlotExportMenu(svgRef, "band-diagram");
+  const exportMenu = usePlotExportMenu(
+    svgRef,
+    "band-diagram",
+    () => (result ? postContactItx(result) : null),
+  );
 
   useLayoutEffect(() => {
     const svg = d3.select(svgRef.current);
@@ -503,10 +582,10 @@ export function BandDiagram({ result, width = 920, height = 420 }: BandDiagramPr
       }
 
       withTextHalo(
-        plotG
+        g
           .append("text")
           .attr("x", (x0 + x1) / 2)
-          .attr("y", 18)
+          .attr("y", 8)
           .attr("text-anchor", "middle")
           .attr("fill", "#0f172a")
           .attr("font-size", 12)
@@ -603,6 +682,7 @@ export function BandDiagram({ result, width = 920, height = 420 }: BandDiagramPr
         menu={exportMenu.menu}
         onExportSvg={exportMenu.exportSvg}
         onExportPng={exportMenu.exportPng}
+        onExportItx={exportMenu.exportItx}
         onClose={exportMenu.closeMenu}
       />
     </div>
@@ -679,7 +759,11 @@ export function PreContactBandDiagram({
   const [widthMode, setWidthMode] = useState<PreContactWidthMode>("equal");
   const [xZoom, setXZoom] = useState<ZoomDomain | null>(null);
   const [yZoom, setYZoom] = useState<ZoomDomain | null>(null);
-  const exportMenu = usePlotExportMenu(svgRef, "pre-contact-band-diagram");
+  const exportMenu = usePlotExportMenu(
+    svgRef,
+    "pre-contact-band-diagram",
+    () => (preview ? preContactItx(preview) : null),
+  );
 
   useLayoutEffect(() => {
     const svg = d3.select(svgRef.current);
@@ -929,6 +1013,7 @@ export function PreContactBandDiagram({
         menu={exportMenu.menu}
         onExportSvg={exportMenu.exportSvg}
         onExportPng={exportMenu.exportPng}
+        onExportItx={exportMenu.exportItx}
         onClose={exportMenu.closeMenu}
       />
     </div>
@@ -954,7 +1039,11 @@ export function SecondaryPlots({
   const [containerRef, drawWidth] = useElementWidth(width);
   const [xZoom, setXZoom] = useState<ZoomDomain | null>(null);
   const [yZoom, setYZoom] = useState<ZoomDomain | null>(null);
-  const exportMenu = usePlotExportMenu(svgRef, `${tab}-plot`);
+  const exportMenu = usePlotExportMenu(
+    svgRef,
+    `${tab}-plot`,
+    () => (result ? secondaryPlotItx(result, tab) : null),
+  );
 
   useLayoutEffect(() => {
     const svg = d3.select(svgRef.current);
@@ -978,32 +1067,7 @@ export function SecondaryPlots({
       yZoom?.key === result && yZoom.tab === tab ? yZoom.domain : null;
     const x = d3.scaleLinear().domain(activeXDomain ?? baseXDomain).range([0, innerW]);
 
-    let yData: number[] = [];
-    let yLabel = "";
-    let logScale = false;
-
-    switch (tab) {
-      case "phi":
-        yData = Array.from(result.phiV);
-        yLabel = "φ [V]";
-        break;
-      case "field":
-        yData = Array.from(result.fieldVm);
-        yLabel = "E [V/m]";
-        break;
-      case "carriers":
-        yData = Array.from(result.nM3).map((v, i) =>
-          Math.max(v, result.pM3[i]!),
-        );
-        yLabel = "n,p [cm⁻³] (max envelope)";
-        logScale = true;
-        yData = yData.map((v) => perM3ToPerCm3(v));
-        break;
-      case "rho":
-        yData = Array.from(result.rhoCm3);
-        yLabel = "ρ [C/m³]";
-        break;
-    }
+    const { values: yData, yLabel, logScale } = secondaryPlotData(result, tab);
 
     const baseYDomain: Domain = logScale
       ? [d3.min(yData.filter((v) => v > 0)) ?? 1, d3.max(yData)!]
@@ -1076,6 +1140,7 @@ export function SecondaryPlots({
         menu={exportMenu.menu}
         onExportSvg={exportMenu.exportSvg}
         onExportPng={exportMenu.exportPng}
+        onExportItx={exportMenu.exportItx}
         onClose={exportMenu.closeMenu}
       />
     </div>

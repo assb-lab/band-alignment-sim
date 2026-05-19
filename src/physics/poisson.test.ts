@@ -141,10 +141,18 @@ describe("equilibrium Poisson solver", () => {
     changedStack.layers[2]!.electronAffinityEv = 4.1;
     changedStack.layers[2]!.bandGapEv = 1.45;
     const changed = solveStack(changedStack, { ...solverOpts, maxRelativeResidual: 2000 });
-    expect(changed.bands.ecEv[changed.bands.ecEv.length - 1]).not.toBeCloseTo(
-      result.bands.ecEv[result.bands.ecEv.length - 1]!,
+    const secondIfaceIdx = changed.mesh.nodes.findIndex(
+      (node, i) => i > 0 && node.layerIndex !== changed.mesh.nodes[i - 1]!.layerIndex && node.layerIndex === 2,
+    );
+    expect(secondIfaceIdx).toBeGreaterThan(0);
+    const changedEcJump =
+      changed.bands.ecEv[secondIfaceIdx]! - changed.bands.ecEv[secondIfaceIdx - 1]!;
+    expect(changedEcJump).not.toBeCloseTo(
+      -ecJump,
       2,
     );
+    expect(changedEcJump).toBeLessThan(-0.42);
+    expect(changedEcJump).toBeGreaterThan(-0.46);
     const changedEv = Array.from(changed.preContactBands.evEv).findLast(Number.isFinite)!;
     const baseEv = Array.from(result.preContactBands.evEv).findLast(Number.isFinite)!;
     expect(changedEv).not.toBeCloseTo(

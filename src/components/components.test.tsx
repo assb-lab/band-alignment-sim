@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BandDiagram, PreContactBandDiagram, SecondaryPlots } from "../components/BandDiagram.tsx";
 import { LayerTable } from "../components/LayerTable.tsx";
 import { GlobalControls } from "../components/GlobalControls.tsx";
@@ -10,7 +10,10 @@ import { createMetalRow, layerToRow } from "../lib/layerForm.ts";
 import { BUILT_IN_MATERIAL_TEMPLATES } from "../lib/materialTemplates.ts";
 
 describe("components", () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   const result = solveStack(siPnStack(), {
     nodesPerNm: 1,
@@ -121,9 +124,37 @@ describe("components", () => {
     expect(screen.getByRole("menu")).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Export SVG" })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: "Export PNG" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Export ITX" })).toBeTruthy();
   });
 
-  it("pans a plot with Alt drag", () => {
+  it("exports ITX from each plot context menu", () => {
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:itx");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const downloads: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function click() {
+      downloads.push(this.download);
+    });
+
+    render(<PreContactBandDiagram preview={preContactPreview(siPnStack())} />);
+    fireEvent.contextMenu(screen.getByRole("img", { name: /Pre-contact/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export ITX" }));
+    expect(downloads).toContain("pre-contact-band-diagram.itx");
+
+    cleanup();
+    render(<BandDiagram result={result} />);
+    fireEvent.contextMenu(screen.getByRole("img", { name: "Band diagram" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export ITX" }));
+    expect(downloads).toContain("band-diagram.itx");
+
+    cleanup();
+    render(<SecondaryPlots result={result} tab="phi" />);
+    fireEvent.contextMenu(document.querySelector("svg")!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Export ITX" }));
+    expect(downloads).toContain("phi-plot.itx");
+    expect(createObjectUrl).toHaveBeenCalled();
+  });
+
+  it("pans a plot during Alt drag before pointer release", () => {
     render(<BandDiagram result={result} />);
     const interaction = Array.from(document.querySelectorAll("rect")).find(
       (rect) => rect.getAttribute("fill") === "transparent",
@@ -143,16 +174,16 @@ describe("components", () => {
       clientY: 210,
       pointerId: 1,
     });
+    const afterTicks = Array.from(document.querySelectorAll("g.tick text")).map(
+      (text) => text.textContent,
+    );
+    expect(afterTicks).not.toEqual(beforeTicks);
     fireEvent.pointerUp(interaction, {
       altKey: true,
       clientX: 330,
       clientY: 210,
       pointerId: 1,
     });
-    const afterTicks = Array.from(document.querySelectorAll("g.tick text")).map(
-      (text) => text.textContent,
-    );
-    expect(afterTicks).not.toEqual(beforeTicks);
   });
 
   it("clips plotted paths to the chart frame", () => {

@@ -145,10 +145,10 @@ export function resolveContacts(
 
   if (!leftIsSchottky && !rightIsSchottky) {
     const eFeq = findFermiForBulkPhi(
-      rightLayer,
+      leftLayer,
       temperatureK,
-      rightEcRef,
-      rightEvRef,
+      leftEcRef,
+      leftEvRef,
       0,
     );
     return {

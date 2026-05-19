@@ -62,6 +62,8 @@ describe("contacts", () => {
     );
     expect(pair.left.kind).toBe("ohmic");
     expect(pair.left.fermiEv).toBeCloseTo(pair.right.fermiEv, 4);
+    expect(pair.left.phiV).toBeCloseTo(0, 8);
+    expect(Math.abs(pair.right.phiV)).toBeGreaterThan(0.1);
   });
 
   it("ohmic surface phi yields n ≈ Nd for n-type", () => {
