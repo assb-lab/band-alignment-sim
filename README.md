@@ -90,7 +90,7 @@ pnpm lint
 
 - `Materials`: 単一材料の定数を CRUD します。built-in は読み取り専用です。
 - built-in 半導体は `n-Si` / `p-Si` のように p/n variant として登録しています。
-- `Interfaces`: 完全な layer stack を CRUD します。材料定数ではなく、界面・積層構造の保存先です。
+- `Interfaces`: 完全な layer stack と電極 `Mode` を CRUD します。材料定数ではなく、界面・積層構造の保存先です。
 - 保存済み material/interface の上書き・削除はアプリ内モーダルで確認します。ブラウザ標準 dialog は使いません。
 
 ## プロジェクト構成

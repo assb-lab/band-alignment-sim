@@ -14,6 +14,7 @@ import { useSimulation } from "./hooks/useSimulation.ts";
 import {
   createUserInterfaceTemplate,
   deleteUserInterfaceTemplate,
+  interfaceElectrodeMode,
   instantiateInterfaceRows,
   listUserInterfaceTemplates,
   saveUserInterfaceTemplate,
@@ -91,6 +92,7 @@ function App() {
           id: `builtin-interface-${index}`,
           source: "built-in",
           name: preset.name,
+          electrodeMode: "shorted",
           rows: stack.layers.map((layer: Layer, layerIndex: number) =>
             layerToRow(layer, `builtin-interface-${index}-${layerIndex}`, stack.temperatureK),
           ),
@@ -137,6 +139,7 @@ function App() {
   const loadInterfaceTemplate = useCallback(
     (template: InterfaceTemplate) => {
       runAfterPresetRef.current = !liveCalc;
+      sim.setElectrodeMode(interfaceElectrodeMode(template));
       sim.loadRows(instantiateInterfaceRows(template));
       setInterfaceLibraryOpen(false);
     },
@@ -164,9 +167,10 @@ function App() {
             id: overwriteId,
             source: "user",
             name,
+            electrodeMode: sim.electrodeMode,
             rows: rows.map((row) => ({ ...row })),
           }
-        : createUserInterfaceTemplate(rows, name);
+        : createUserInterfaceTemplate(rows, sim.electrodeMode, name);
       return saveUserInterfaceTemplate(template).then((saved) => {
         setUserInterfaceTemplates((prev) =>
           prev.some((item) => item.id === saved.id)
@@ -176,7 +180,7 @@ function App() {
         return null;
       });
     },
-    [builtInInterfaceTemplates, rows, userInterfaceTemplates],
+    [builtInInterfaceTemplates, rows, sim.electrodeMode, userInterfaceTemplates],
   );
 
   const renameInterfaceTemplate = useCallback(

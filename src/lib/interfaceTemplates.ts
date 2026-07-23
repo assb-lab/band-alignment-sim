@@ -1,9 +1,11 @@
 import type { LayerRow } from "./layerForm.ts";
+import type { ElectrodeMode } from "../physics/types.ts";
 
 export interface InterfaceTemplate {
   id: string;
   source: "built-in" | "user";
   name: string;
+  electrodeMode?: ElectrodeMode;
   rows: LayerRow[];
 }
 
@@ -63,14 +65,20 @@ function cloneRows(rows: LayerRow[]): LayerRow[] {
 
 export function createUserInterfaceTemplate(
   rows: LayerRow[],
+  electrodeMode: ElectrodeMode,
   name = "New interface",
 ): InterfaceTemplate {
   return {
     id: uniqueUserInterfaceId(),
     source: "user",
     name,
+    electrodeMode,
     rows: cloneRows(rows),
   };
+}
+
+export function interfaceElectrodeMode(template: InterfaceTemplate): ElectrodeMode {
+  return template.electrodeMode ?? "shorted";
 }
 
 export function instantiateInterfaceRows(template: InterfaceTemplate): LayerRow[] {

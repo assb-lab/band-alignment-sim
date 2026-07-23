@@ -116,10 +116,12 @@ describe("App integration", () => {
 
   it("opens the interface library modal and supports user interface CRUD", async () => {
     render(<App />);
+    fireEvent.change(screen.getByLabelText(/^Mode$/), { target: { value: "open" } });
     fireEvent.click(screen.getByRole("button", { name: "Interfaces" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Interfaces" });
     expect(within(dialog).getByText("Interface sets are complete layer stacks. Materials are single-row material constants.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Mode")).toBeInTheDocument();
     expect(within(dialog).getByText("Si pn")).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByDisplayValue("Current interface"), {
@@ -130,6 +132,7 @@ describe("App integration", () => {
     await waitFor(() => {
       expect(within(dialog).getByDisplayValue("Saved interface test")).toBeInTheDocument();
     });
+    expect(within(dialog).getByText("Open circuit")).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByDisplayValue("Current interface"), {
       target: { value: "Saved interface test" },
@@ -162,6 +165,29 @@ describe("App integration", () => {
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog", { name: "Interfaces" })).not.toBeInTheDocument();
+  });
+
+  it("restores electrode mode when loading a saved interface", async () => {
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/^Mode$/), { target: { value: "open" } });
+    fireEvent.click(screen.getByRole("button", { name: "Interfaces" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Interfaces" });
+    fireEvent.change(within(dialog).getByDisplayValue("Current interface"), {
+      target: { value: "Open mode interface" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save current interface" }));
+    await waitFor(() => {
+      expect(within(dialog).getByDisplayValue("Open mode interface")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(/^Mode$/), { target: { value: "shorted" } });
+    const row = within(dialog).getByDisplayValue("Open mode interface").closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Load" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Mode$/)).toHaveValue("open");
+    });
   });
 
   it.each(["InP/InGaAs p-i-n", "AlGaN/GaN"])(

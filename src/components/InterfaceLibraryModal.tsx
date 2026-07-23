@@ -1,5 +1,8 @@
 import { useState } from "react";
-import type { InterfaceTemplate } from "../lib/interfaceTemplates.ts";
+import {
+  interfaceElectrodeMode,
+  type InterfaceTemplate,
+} from "../lib/interfaceTemplates.ts";
 
 interface InterfaceLibraryModalProps {
   builtInTemplates: InterfaceTemplate[];
@@ -14,6 +17,13 @@ interface InterfaceLibraryModalProps {
 
 function rowSummary(template: InterfaceTemplate): string {
   return template.rows.map((row) => row.label).join(" / ");
+}
+
+function modeLabel(template: InterfaceTemplate): string {
+  const mode = interfaceElectrodeMode(template);
+  if (mode === "open") return "Open circuit";
+  if (mode === "bias") return "Applied bias";
+  return "Shorted equilibrium";
 }
 
 function InterfaceRow({
@@ -49,6 +59,7 @@ function InterfaceRow({
         )}
       </td>
       <td className="px-2 py-2 text-slate-600">{template.source === "built-in" ? "Example" : "User"}</td>
+      <td className="px-2 py-2 text-slate-700">{modeLabel(template)}</td>
       <td className="px-2 py-2 text-slate-700">{template.rows.length}</td>
       <td className="px-2 py-2 text-slate-700">{rowSummary(template)}</td>
       <td className="px-2 py-2">
@@ -216,6 +227,7 @@ export function InterfaceLibraryModal({
               <tr>
                 <th className="px-2 py-2 font-medium">Name</th>
                 <th className="px-2 py-2 font-medium">Kind</th>
+                <th className="px-2 py-2 font-medium">Mode</th>
                 <th className="px-2 py-2 font-medium">Layers</th>
                 <th className="px-2 py-2 font-medium">Stack</th>
                 <th className="px-2 py-2 font-medium">Actions</th>
