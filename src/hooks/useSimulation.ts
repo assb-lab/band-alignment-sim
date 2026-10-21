@@ -8,12 +8,7 @@ import type {
 } from "../physics/types.ts";
 import { DEFAULT_SOLVER_OPTIONS, ConvergenceError } from "../physics/types.ts";
 import { StackValidationError } from "../physics/stackContacts.ts";
-import {
-  layerToRow,
-  isLayerRowEnabled,
-  rowToLayer,
-  type LayerRow,
-} from "../lib/layerForm.ts";
+import { layerToRow, isLayerRowEnabled, rowToLayer, type LayerRow } from "../lib/layerForm.ts";
 
 export interface SimulationState {
   rows: LayerRow[];
@@ -50,7 +45,19 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [resultInputKey, setResultInputKey] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+  const inputKey = JSON.stringify([
+    rows,
+    temperatureK,
+    Vapp,
+    nodesPerNm,
+    tol,
+    maxGummelIter,
+    maxNewtonIter,
+    maxRelativeResidual,
+    electrodeMode,
+  ]);
 
   const stack: LayerStack = useMemo(
     () => ({
@@ -62,47 +69,86 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
 
   useEffect(() => () => terminateSimulationWorker(), []);
 
-  const run = useCallback((): Promise<void> => {
-    const requestId = ++requestIdRef.current;
-    setRunning(true);
-    setError(null);
+  const runForAgent = useCallback(
+    (
+      signal?: AbortSignal,
+      commit: (update: () => void) => void = (update) => update(),
+    ): Promise<SimulationResult> => {
+      signal?.throwIfAborted();
+      const requestId = ++requestIdRef.current;
+      commit(() => {
+        setRunning(true);
+        setError(null);
+      });
+      const cancel = () => {
+        if (requestId !== requestIdRef.current) return;
+        ++requestIdRef.current;
+        terminateSimulationWorker();
+        setRunning(false);
+        setResult(null);
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
 
-    const options: SolverOptions = {
-      ...DEFAULT_SOLVER_OPTIONS,
+      const options: SolverOptions = {
+        ...DEFAULT_SOLVER_OPTIONS,
+        nodesPerNm,
+        tol,
+        maxGummelIter,
+        maxNewtonIter,
+        maxRelativeResidual,
+        electrodeMode,
+        Vapp: electrodeMode === "bias" ? Vapp : 0,
+      };
+
+      return runSimulation(stack, options)
+        .then((sim) => {
+          signal?.throwIfAborted();
+          if (requestId !== requestIdRef.current)
+            throw new Error(
+              "Simulation superseded by a newer run. Retry with the current settings.",
+            );
+          commit(() => {
+            setResult(sim);
+            setResultInputKey(inputKey);
+            setRunning(false);
+          });
+          return sim;
+        })
+        .catch((e: unknown) => {
+          if (requestId === requestIdRef.current) {
+            commit(() => {
+              setResult(null);
+              setError(errorMessage(e));
+              setRunning(false);
+            });
+          }
+          throw e;
+        })
+        .finally(() => {
+          signal?.removeEventListener("abort", cancel);
+        });
+    },
+    [
+      stack,
       nodesPerNm,
       tol,
       maxGummelIter,
       maxNewtonIter,
       maxRelativeResidual,
       electrodeMode,
-      Vapp: electrodeMode === "bias" ? Vapp : 0,
-    };
+      Vapp,
+      inputKey,
+    ],
+  );
 
-    return runSimulation(stack, options)
-      .then((sim) => {
-        if (requestId !== requestIdRef.current) return;
-        setResult(sim);
-      })
-      .catch((e: unknown) => {
-        if (requestId !== requestIdRef.current) return;
-        setResult(null);
-        setError(errorMessage(e));
-      })
-      .finally(() => {
-        if (requestId === requestIdRef.current) {
-          setRunning(false);
-        }
-      }) as Promise<void>;
-  }, [
-    stack,
-    nodesPerNm,
-    tol,
-    maxGummelIter,
-    maxNewtonIter,
-    maxRelativeResidual,
-    electrodeMode,
-    Vapp,
-  ]);
+  const run = useCallback(
+    (): Promise<void> =>
+      runForAgent().then(
+        () => undefined,
+        () => undefined,
+      ),
+    [runForAgent],
+  );
 
   const loadRows = useCallback((next: LayerRow[]) => {
     setRows(next);
@@ -130,9 +176,11 @@ export function useSimulation(initialRows: LayerRow[], initialT = 300) {
     electrodeMode,
     setElectrodeMode,
     result,
+    resultIsCurrent: result !== null && resultInputKey === inputKey,
     error,
     running,
     run,
+    runForAgent,
     loadRows,
     layerToRow,
   };

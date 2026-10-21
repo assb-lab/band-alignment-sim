@@ -37,31 +37,10 @@ import {
   saveUserMaterialTemplate,
   type MaterialTemplate,
 } from "./lib/materialTemplates.ts";
-import {
-  alganGanStack,
-  ganSchottkyStack,
-  gePnStack,
-  inpIngaasStack,
-  siHetero3Stack,
-  siPnStack,
-  siSchottkyNStack,
-  sicSchottkyStack,
-  znoCdteStack,
-} from "./presets/materials.ts";
+import { siPnStack, INTERFACE_PRESETS } from "./presets/interfaces.ts";
+import { useWebMCP } from "./hooks/useWebMCP.ts";
 import type { Layer } from "./physics/types.ts";
 import { preContactBands, preContactMaterialRegions } from "./physics/preContact.ts";
-
-const PRESETS = [
-  { name: "Si pn", stack: siPnStack },
-  { name: "GaAs/AlGaAs 3-layer", stack: siHetero3Stack },
-  { name: "Si Schottky", stack: siSchottkyNStack },
-  { name: "Ge pn", stack: gePnStack },
-  { name: "InP/InGaAs p-i-n", stack: inpIngaasStack },
-  { name: "AlGaN/GaN", stack: alganGanStack },
-  { name: "Ni/GaN Schottky", stack: ganSchottkyStack },
-  { name: "Ti/4H-SiC Schottky", stack: sicSchottkyStack },
-  { name: "ZnO/CdTe", stack: znoCdteStack },
-];
 
 function App() {
   const initialStack = siPnStack();
@@ -69,6 +48,7 @@ function App() {
     layerToRow(l, `layer-${i}`, initialStack.temperatureK),
   );
   const sim = useSimulation(initialRows);
+  const webMCPStatus = useWebMCP(sim);
   const [plotTab, setPlotTab] = useState<SecondaryPlotTab>("phi");
   const [userMaterialTemplates, setUserMaterialTemplates] = useState<MaterialTemplate[]>([]);
   const [saveTemplateRowId, setSaveTemplateRowId] = useState<string | null>(null);
@@ -86,7 +66,7 @@ function App() {
   );
   const builtInInterfaceTemplates = useMemo<InterfaceTemplate[]>(
     () =>
-      PRESETS.map((preset, index) => {
+      INTERFACE_PRESETS.map((preset, index) => {
         const stack = preset.stack();
         return {
           id: `builtin-interface-${index}`,
@@ -309,6 +289,7 @@ function App() {
           <p className="mt-1 text-sm text-slate-600">
             1D Poisson + Boltzmann — stack layers include metal rows for Schottky contacts
           </p>
+          <p className="mt-1 text-xs text-slate-500" role="status">{webMCPStatus}</p>
         </div>
       </header>
 
