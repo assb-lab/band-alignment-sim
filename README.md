@@ -105,6 +105,35 @@ src/
   workers/     simulation worker
 ```
 
+## AI からの操作（WebMCP）
+
+WebMCP を有効にした対応ブラウザで HTTPS または localhost のページを開くと、以下のツールを自動登録します。ヘッダーの `WebMCP: 5 tools ready` が登録完了の目印です。未対応なら `unavailable in this browser` と表示し、通常の画面操作を継続できます。登録が拒否された場合も理由を表示し、通常 UI は利用できます。
+
+最新の [`document.modelContext` Imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api) を優先します。旧 `navigator.modelContext` 実装もサポートします。最新 API は登録用 AbortSignal、旧 API は `unregisterTool` でアンマウント時に解除します。外部依存・外部送信・MCP サーバは追加していません。ブラウザ上の WebMCP 対応エージェント／Inspector から利用する仕組みで、任意の AI チャットが自動接続されるわけではありません。ブラウザの対応・有効化方法は [Chrome の WebMCP ドキュメント](https://developer.chrome.com/docs/ai/webmcp) を参照してください。
+
+| ツール | 操作 |
+| --- | --- |
+| `list_presets` | UI と共通の組込プリセット一覧 |
+| `get_simulation_state` | 層、温度、電極モード、電圧、数値設定、計算状態・エラー・結果の有効性 |
+| `configure_simulation` | プリセット読込、層の全置換、計算条件の部分変更。変更は画面にも反映 |
+| `run_simulation` | 現在の条件を既存 Worker/ソルバで計算し、収束・Vbi・接触情報を返す |
+| `get_simulation_results` | 現在の計算結果からバンド、電位、電界、電荷・キャリア密度を JSON 取得 |
+
+呼出し例（ツール名と JSON 引数）:
+
+```text
+list_presets             {}
+configure_simulation    {"preset":"Si pn","temperatureK":300,"electrodeMode":"bias","Vapp":0.1}
+run_simulation          {}
+get_simulation_results  {"maxPoints":200}
+```
+
+`configure_simulation` は `preset` と `rows` を同時には受け付けません。プリセットは層・温度・モード・Vapp を既定値に戻し、同時指定した条件を上書きします。それ以外の省略した条件は維持します。`rows` は `get_simulation_state` の行を編集して全体を渡してください（追加・削除・並べ替えもこの配列で指定）。行 ID は省略可能で、指定する場合は重複不可です。無効な入力は設定全体を適用せず、`{error: "修正に役立つ説明"}` を返します。層は最大 32、推定メッシュは最大 20,000 ノードです。各フィールドの数値範囲は公開 inputSchema を参照してください。
+
+層の単位は UI と同じ nm・eV・cm⁻³、`fermiLevelVacuumEv` は真空基準の符号付きエネルギーです。`dopingInputMode: "direct"` なら `NdCm3` / `NaCm3`、`"fermi"` なら Fermi 値からドーピングを決めます。金属は端の行として表し、厚さ 0 を許容します。電極モードは `shorted` / `open` / `bias`、`Vapp` が計算に使われるのは `bias` のみです。Live が有効なら条件変更でも自動計算が走ります。
+
+結果は既定で各プロファイル最大 200 点（`maxPoints`: 2–1000）を、両端を含む等間隔のインデックスで抽出します。細い界面構造は抽出から漏れる場合があり、全点エクスポートの代用にはなりません。`mesh` は半導体内、`bands` は金属を含む表示バンドの座標を持つ独立した配列です。単位を結果内に明記し、定義されない金属のバンド端は `null` にします。設定が変わった結果や計算中の結果は返しません。実行キャンセルは Worker を停止し、新しい実行に置き換わった計算も成功として返しません。バイアスの物理的制限は通常 UI と同じです。
+
 ## 既知の制限
 
 - 非縮退 Boltzmann のみです。縮退半導体・高ドーピング補正は未対応です。
