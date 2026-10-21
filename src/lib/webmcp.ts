@@ -70,7 +70,8 @@ const configureSchema = object({
   preset: {
     type: "string",
     enum: INTERFACE_PRESETS.map((p) => p.name),
-    description: "Replaces rows and resets temperature and electrode mode to the preset defaults.",
+    description:
+      "Replaces rows and resets temperature, electrode mode and Vapp to the preset defaults.",
   },
   rows: {
     type: "array",
