@@ -13,6 +13,10 @@ pnpm build
 pnpm lint
 ```
 
+## GitHub Pages
+
+`main` への push 時に GitHub Actions でビルドし、GitHub Pages にデプロイします。リポジトリの Settings → Pages → Build and deployment の Source を `GitHub Actions` に設定してください。公開先は `https://assb-lab.github.io/band-alignment-sim/` です。
+
 ## 使い方
 
 1. `Materials` で材料定数、`Interfaces` でスタック一式を管理します。
