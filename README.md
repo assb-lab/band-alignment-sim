@@ -15,7 +15,9 @@ pnpm lint
 
 ## GitHub Pages
 
-`main` への push 時に GitHub Actions でビルドし、GitHub Pages にデプロイします。リポジトリの Settings → Pages → Build and deployment の Source を `GitHub Actions` に設定してください。公開先は `https://assb-lab.github.io/band-alignment-sim/` です。
+[シミュレータを開く](https://assb-lab.github.io/band-alignment-sim/)
+
+`main` への push 時に GitHub Actions でビルドし、GitHub Pages にデプロイします。リポジトリの Settings → Pages → Build and deployment の Source を `GitHub Actions` に設定してください。
 
 ## 使い方
 
